@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -11,7 +11,6 @@ import DrawingCanvas from "@/components/drawing-canvas"
 import { useToast } from "@/hooks/use-toast"
 import DrawingBackground from "@/components/drawing-background"
 import { useUserTokens } from "@/hooks/use-user-tokens"
-import { getSession } from "@/lib/utils"
 
 interface UserTokens {
   lines: number
@@ -33,12 +32,12 @@ export default function DrawPage() {
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
 
-  const useTokenCallback = useCallback(
-    (tokenType: "line" | "nuke") => {
-      useToken(tokenType)
-    },
-    [useToken],
-  )
+  // const useTokenCallback = useCallback(
+  //   (tokenType: "line" | "nuke") => {
+  //     useToken(tokenType)
+  //   },
+  //   [useToken],
+  // )
 
   // Validate session exists
   useEffect(() => {
@@ -47,12 +46,16 @@ export default function DrawPage() {
     const validateSession = async () => {
       console.log("Validating session:", sessionId)
 
-      // Check if session exists in the database
-      const sessionData = await getSession(sessionId)
-      if (sessionData) {
-        setSessionExists(true)
-        setIsLoading(false)
-        return
+      // Check if session exists via API call instead of server-only function
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        if (response.ok) {
+          setSessionExists(true)
+          setIsLoading(false)
+          return
+        }
+      } catch (error) {
+        console.log("Session API check failed:", error)
       }
 
       // Check if session exists in any user's sessions or has a wallet configured
@@ -154,14 +157,15 @@ export default function DrawPage() {
 
   const handleTokenUsed = (tokenType: "line" | "nuke") => {
     setTokenTypeUsed(tokenType)
+    useToken(tokenType)
   }
 
-  useEffect(() => {
-    if (tokenTypeUsed) {
-      useTokenCallback(tokenTypeUsed)
-      setTokenTypeUsed(null)
-    }
-  }, [tokenTypeUsed, useTokenCallback])
+  // useEffect(() => {
+  //   if (tokenTypeUsed) {
+  //     useTokenCallback(tokenTypeUsed)
+  //     setTokenTypeUsed(null)
+  //   }
+  // }, [tokenTypeUsed, useTokenCallback])
 
   if (isLoading) {
     return (
