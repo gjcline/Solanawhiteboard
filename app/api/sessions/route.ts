@@ -95,9 +95,22 @@ export async function POST(request: NextRequest) {
 
     console.log("Creating session:", { id, name, owner_id: ownerIdNum, streamer_wallet })
 
+    console.log("About to insert session with values:", {
+      id: id,
+      name: name,
+      owner_id: ownerIdNum,
+      streamer_wallet: streamer_wallet,
+      types: {
+        id: typeof id,
+        name: typeof name,
+        owner_id: typeof ownerIdNum,
+        streamer_wallet: typeof streamer_wallet,
+      },
+    })
+
     const session = await sql`
-      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
-      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet})
+      INSERT INTO sessions (id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count)
+      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet}, true, 0, 0)
       RETURNING *
     `
 

@@ -29,9 +29,16 @@ export class SessionService {
     streamer_wallet: string
   }): Promise<Session> {
     console.log("Creating session with data:", data)
+    console.log("Data types:", {
+      id: typeof data.id,
+      name: typeof data.name,
+      owner_id: typeof data.owner_id,
+      streamer_wallet: typeof data.streamer_wallet,
+    })
+
     const result = await sql`
-      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
-      VALUES (${data.id}, ${data.name}, ${data.owner_id}, ${data.streamer_wallet})
+      INSERT INTO sessions (id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count)
+      VALUES (${data.id}, ${data.name}, ${data.owner_id}, ${data.streamer_wallet}, true, 0, 0)
       RETURNING *
     `
     console.log("Session created:", result[0])
