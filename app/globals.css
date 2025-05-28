@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 142 76% 36%;
+    --primary-foreground: 355 7% 97%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 142 76% 36%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 142 76% 36%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+    min-height: 100vh;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Ensure all containers can center properly */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      max-width: 640px;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .container {
+      max-width: 768px;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      max-width: 1024px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .container {
+      max-width: 1280px;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .container {
+      max-width: 1536px;
+    }
+  }
+}
+
+/* Pump.fun inspired styles */
+.pump-gradient {
+  background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+}
+
+.pump-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.pump-button {
+  background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+  border: none;
+  color: #000;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.pump-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
+}
+
+.pump-text-gradient {
+  background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-effect {
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #00ff88;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00cc6a;
+}
+
+/* Responsive utilities */
+@media (max-width: 768px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}
