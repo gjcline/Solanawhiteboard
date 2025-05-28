@@ -8,10 +8,16 @@ export async function setupDatabase() {
     const testResult = await sql`SELECT NOW() as now, current_database() as db_name`
     console.log("✅ Connected to database:", testResult[0])
 
-    // Create users table
+    // Drop existing tables if they exist (for clean setup)
+    console.log("🧹 Cleaning up existing tables...")
+    await sql`DROP TABLE IF EXISTS user_tokens CASCADE`
+    await sql`DROP TABLE IF EXISTS sessions CASCADE`
+    await sql`DROP TABLE IF EXISTS users CASCADE`
+
+    // Create users table with SERIAL id (not custom string id)
     console.log("👥 Creating users table...")
     await sql`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE users (
         id SERIAL PRIMARY KEY,
         username VARCHAR(255) UNIQUE NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
@@ -25,7 +31,7 @@ export async function setupDatabase() {
     // Create sessions table
     console.log("📋 Creating sessions table...")
     await sql`
-      CREATE TABLE IF NOT EXISTS sessions (
+      CREATE TABLE sessions (
         id SERIAL PRIMARY KEY,
         session_id VARCHAR(255) UNIQUE NOT NULL,
         user_id INTEGER REFERENCES users(id),
@@ -40,7 +46,7 @@ export async function setupDatabase() {
     // Create user_tokens table
     console.log("🪙 Creating user_tokens table...")
     await sql`
-      CREATE TABLE IF NOT EXISTS user_tokens (
+      CREATE TABLE user_tokens (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id),
         session_id VARCHAR(255) REFERENCES sessions(session_id),
@@ -59,7 +65,23 @@ export async function setupDatabase() {
       ORDER BY table_name
     `
 
-    console.log("🎉 Database setup complete!")
+    console.log(
+      "🎉 Database setup complete! Tables created:",
+      tables.map((t) => t.table_name),
+    )
+
+    // Test inserting a user to make sure everything works
+    console.log("🧪 Testing user creation...")
+    const testUser = await sql`
+      INSERT INTO users (username, email, password_hash)
+      VALUES ('testuser', 'test@example.com', 'testhash')
+      RETURNING id, username, email
+    `
+    console.log("✅ Test user created:", testUser[0])
+
+    // Clean up test user
+    await sql`DELETE FROM users WHERE email = 'test@example.com'`
+    console.log("🧹 Test user cleaned up")
 
     return {
       success: true,
@@ -73,6 +95,7 @@ export async function setupDatabase() {
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
     }
   }
 }

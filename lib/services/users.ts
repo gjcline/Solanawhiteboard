@@ -2,7 +2,7 @@ import { query } from "../database"
 import bcrypt from "bcryptjs"
 
 export interface User {
-  id: string
+  id: number // Changed from string to number since we're using SERIAL
   username: string
   email: string
   wallet_address?: string
@@ -21,31 +21,31 @@ export class UserService {
   // Create a new user
   static async create(data: CreateUserData): Promise<User> {
     try {
-      // Hash the password
-      const saltRounds = 12
-      const password_hash = await bcrypt.hash(data.password, saltRounds)
-
-      // Generate user ID
-      const id = Math.random().toString(36).substring(2, 14)
-
-      console.log("Creating user with data:", {
-        id,
+      console.log("UserService.create called with:", {
         username: data.username,
         email: data.email,
+        hasPassword: !!data.password,
         wallet_address: data.wallet_address,
       })
 
+      // Hash the password
+      console.log("Hashing password...")
+      const saltRounds = 12
+      const password_hash = await bcrypt.hash(data.password, saltRounds)
+      console.log("Password hashed successfully")
+
+      console.log("Inserting user into database...")
       const result = await query(
-        `INSERT INTO users (id, username, email, password_hash, wallet_address)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO users (username, email, password_hash, wallet_address)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, username, email, wallet_address, created_at, updated_at`,
-        [id, data.username, data.email, password_hash, data.wallet_address || null],
+        [data.username, data.email, password_hash, data.wallet_address || null],
       )
 
       console.log("User created successfully:", result.rows[0])
       return result.rows[0]
     } catch (error) {
-      console.error("Error creating user:", error)
+      console.error("Error in UserService.create:", error)
       throw error
     }
   }
@@ -53,10 +53,12 @@ export class UserService {
   // Get user by email
   static async getByEmail(email: string): Promise<User | null> {
     try {
+      console.log("Getting user by email:", email)
       const result = await query(
         "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE email = $1",
         [email],
       )
+      console.log("Query result:", result.rows.length > 0 ? "User found" : "User not found")
       return result.rows[0] || null
     } catch (error) {
       console.error("Error getting user by email:", error)
@@ -65,8 +67,9 @@ export class UserService {
   }
 
   // Get user by ID
-  static async getById(id: string): Promise<User | null> {
+  static async getById(id: number): Promise<User | null> {
     try {
+      console.log("Getting user by ID:", id)
       const result = await query(
         "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE id = $1",
         [id],
@@ -81,19 +84,30 @@ export class UserService {
   // Verify password
   static async verifyPassword(email: string, password: string): Promise<User | null> {
     try {
+      console.log("Verifying password for email:", email)
+
       const result = await query(
         "SELECT id, username, email, password_hash, wallet_address, created_at, updated_at FROM users WHERE email = $1",
         [email],
       )
 
-      const user = result.rows[0]
-      if (!user) return null
+      console.log("User lookup result:", result.rows.length > 0 ? "User found" : "User not found")
 
+      const user = result.rows[0]
+      if (!user) {
+        console.log("No user found with email:", email)
+        return null
+      }
+
+      console.log("Comparing password with hash...")
       const isValid = await bcrypt.compare(password, user.password_hash)
+      console.log("Password comparison result:", isValid ? "Valid" : "Invalid")
+
       if (!isValid) return null
 
       // Return user without password hash
       const { password_hash, ...userWithoutPassword } = user
+      console.log("Password verification successful for user:", userWithoutPassword.id)
       return userWithoutPassword
     } catch (error) {
       console.error("Error verifying password:", error)
@@ -102,7 +116,7 @@ export class UserService {
   }
 
   // Update user
-  static async update(id: string, data: Partial<CreateUserData>): Promise<User | null> {
+  static async update(id: number, data: Partial<CreateUserData>): Promise<User | null> {
     try {
       const updates = []
       const values = []
@@ -146,7 +160,9 @@ export class UserService {
   // Check if email exists
   static async emailExists(email: string): Promise<boolean> {
     try {
+      console.log("Checking if email exists:", email)
       const result = await query("SELECT 1 FROM users WHERE email = $1", [email])
+      console.log("Email exists check result:", result.rows.length > 0)
       return result.rows.length > 0
     } catch (error) {
       console.error("Error checking email exists:", error)
@@ -157,7 +173,9 @@ export class UserService {
   // Check if username exists
   static async usernameExists(username: string): Promise<boolean> {
     try {
+      console.log("Checking if username exists:", username)
       const result = await query("SELECT 1 FROM users WHERE username = $1", [username])
+      console.log("Username exists check result:", result.rows.length > 0)
       return result.rows.length > 0
     } catch (error) {
       console.error("Error checking username exists:", error)
