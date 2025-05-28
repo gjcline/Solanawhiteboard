@@ -245,6 +245,12 @@ export default function DashboardPage() {
     }
   }
 
+  // Helper function to safely convert earnings to number
+  const formatEarnings = (earnings: any): string => {
+    const num = typeof earnings === "string" ? Number.parseFloat(earnings) : earnings || 0
+    return isNaN(num) ? "0.00000" : num.toFixed(5)
+  }
+
   if (!user) {
     return null
   }
@@ -399,7 +405,10 @@ export default function DashboardPage() {
             </Card>
           ) : (
             sessions?.map((session) => (
-              <Card key={session.id} className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}>
+              <Card
+                key={session.session_id || session.id}
+                className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}
+              >
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div>
@@ -425,7 +434,7 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleToggleSession(session.id, session.is_active)}
+                        onClick={() => handleToggleSession(session.session_id || session.id, session.is_active)}
                         className={`border-gray-700 hover:bg-gray-800 ${
                           session.is_active ? "text-red-400 hover:text-red-300" : "text-green-400 hover:text-green-300"
                         }`}
@@ -436,7 +445,9 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => copyToClipboard(`${window.location.origin}/view/${session.id}`, "view")}
+                        onClick={() =>
+                          copyToClipboard(`${window.location.origin}/view/${session.session_id || session.id}`, "view")
+                        }
                         className="border-gray-700 text-gray-300 hover:bg-gray-800"
                         disabled={!session.is_active}
                       >
@@ -445,7 +456,7 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDeleteSession(session.id)}
+                        onClick={() => handleDeleteSession(session.session_id || session.id)}
                         className="border-gray-700 text-gray-300 hover:bg-gray-800"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -459,7 +470,7 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <h4 className="font-medium text-gray-300 text-sm">receiving wallet (50% revenue)</h4>
-                        {editingWallet === session.id ? (
+                        {editingWallet === (session.session_id || session.id) ? (
                           <div className="flex items-center gap-2 mt-2">
                             <WalletAddressInput
                               value={editWalletValue}
@@ -478,7 +489,9 @@ export default function DashboardPage() {
                               </Button>
                             )}
                             <Button
-                              onClick={() => handleUpdateSessionWallet(session.id, editWalletValue)}
+                              onClick={() =>
+                                handleUpdateSessionWallet(session.session_id || session.id, editWalletValue)
+                              }
                               size="sm"
                               className="pump-button text-black"
                               disabled={!isValidSolanaAddress(editWalletValue)}
@@ -500,7 +513,9 @@ export default function DashboardPage() {
                               {formatWalletAddress(session.streamer_wallet, 8, 8)}
                             </span>
                             <Button
-                              onClick={() => startEditingWallet(session.id, session.streamer_wallet)}
+                              onClick={() =>
+                                startEditingWallet(session.session_id || session.id, session.streamer_wallet)
+                              }
                               size="sm"
                               variant="ghost"
                               className="h-6 w-6 p-0 text-gray-400 hover:text-white"
@@ -519,11 +534,11 @@ export default function DashboardPage() {
                       <h4 className="font-medium mb-2 text-gray-300">for your stream (view only)</h4>
                       <div className="flex gap-2">
                         <Input
-                          value={`${window.location.origin}/view/${session.id}`}
+                          value={`${window.location.origin}/view/${session.session_id || session.id}`}
                           readOnly
                           className="text-xs bg-gray-800 border-gray-700 text-gray-400"
                         />
-                        <Link href={`/view/${session.id}`}>
+                        <Link href={`/view/${session.session_id || session.id}`}>
                           <Button
                             variant="outline"
                             size="sm"
@@ -536,7 +551,12 @@ export default function DashboardPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => copyToClipboard(`${window.location.origin}/view/${session.id}`, "view")}
+                          onClick={() =>
+                            copyToClipboard(
+                              `${window.location.origin}/view/${session.session_id || session.id}`,
+                              "view",
+                            )
+                          }
                           className="border-gray-700 text-gray-300 hover:bg-gray-800"
                           disabled={!session.is_active}
                         >
@@ -551,11 +571,11 @@ export default function DashboardPage() {
                       <h4 className="font-medium mb-2 text-gray-300">for viewers (token purchase & draw)</h4>
                       <div className="flex gap-2">
                         <Input
-                          value={`${window.location.origin}/draw/${session.id}`}
+                          value={`${window.location.origin}/draw/${session.session_id || session.id}`}
                           readOnly
                           className="text-xs bg-gray-800 border-gray-700 text-gray-400"
                         />
-                        <Link href={`/draw/${session.id}`}>
+                        <Link href={`/draw/${session.session_id || session.id}`}>
                           <Button
                             variant="outline"
                             size="sm"
@@ -568,7 +588,12 @@ export default function DashboardPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => copyToClipboard(`${window.location.origin}/draw/${session.id}`, "draw")}
+                          onClick={() =>
+                            copyToClipboard(
+                              `${window.location.origin}/draw/${session.session_id || session.id}`,
+                              "draw",
+                            )
+                          }
                           className="border-gray-700 text-gray-300 hover:bg-gray-800"
                           disabled={!session.is_active}
                         >
@@ -584,7 +609,7 @@ export default function DashboardPage() {
                   {/* Session Stats */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="text-[#00ff88] font-bold">{(session.total_earnings || 0).toFixed(5)} SOL</div>
+                      <div className="text-[#00ff88] font-bold">{formatEarnings(session.total_earnings)} SOL</div>
                       <div className="text-gray-400">earnings (50%)</div>
                     </div>
                     <div className="text-center p-3 bg-gray-800/50 rounded-lg">
@@ -602,7 +627,7 @@ export default function DashboardPage() {
                       <div className="text-gray-400">nukes used</div>
                     </div>
                     <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="text-white font-bold">{session.active_viewers || 0}</div>
+                      <div className="text-white font-bold">{session.viewer_count || 0}</div>
                       <div className="text-gray-400">active viewers</div>
                     </div>
                   </div>
