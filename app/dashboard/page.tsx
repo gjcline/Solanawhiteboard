@@ -25,6 +25,8 @@ import {
   X,
   RefreshCw,
   AlertCircle,
+  Power,
+  PowerOff,
 } from "lucide-react"
 import DrawingBackground from "@/components/drawing-background"
 import { useSessions } from "@/hooks/use-sessions"
@@ -103,12 +105,31 @@ export default function DashboardPage() {
       await deleteSession(sessionId)
 
       toast({
-        title: "session deleted",
-        description: "the drawing session has been removed and is now inactive.",
+        title: "session deactivated",
+        description: "the drawing session has been deactivated and is no longer accessible.",
       })
     } catch (error) {
       toast({
-        title: "failed to delete session",
+        title: "failed to deactivate session",
+        description: "try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleToggleSession = async (sessionId: string, currentStatus: boolean) => {
+    try {
+      await updateSession(sessionId, { is_active: !currentStatus })
+
+      toast({
+        title: currentStatus ? "session deactivated" : "session reactivated",
+        description: currentStatus
+          ? "session is now inactive and inaccessible to viewers."
+          : "session is now active and accessible to viewers.",
+      })
+    } catch (error) {
+      toast({
+        title: "failed to update session",
         description: "try again.",
         variant: "destructive",
       })
@@ -378,11 +399,24 @@ export default function DashboardPage() {
             </Card>
           ) : (
             sessions?.map((session) => (
-              <Card key={session.id} className="pump-card border-gray-800">
+              <Card key={session.id} className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}>
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div>
-                      <CardTitle className="text-white">{session.name}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-white">{session.name}</CardTitle>
+                        {session.is_active ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-400 border border-green-500/30">
+                            <Power className="h-3 w-3" />
+                            active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-400 border border-red-500/30">
+                            <PowerOff className="h-3 w-3" />
+                            inactive
+                          </span>
+                        )}
+                      </div>
                       <CardDescription className="text-gray-400">
                         created {new Date(session.created_at).toLocaleDateString()}
                       </CardDescription>
@@ -391,8 +425,20 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => handleToggleSession(session.id, session.is_active)}
+                        className={`border-gray-700 hover:bg-gray-800 ${
+                          session.is_active ? "text-red-400 hover:text-red-300" : "text-green-400 hover:text-green-300"
+                        }`}
+                        title={session.is_active ? "Deactivate session" : "Reactivate session"}
+                      >
+                        {session.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => copyToClipboard(`${window.location.origin}/view/${session.id}`, "view")}
                         className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                        disabled={!session.is_active}
                       >
                         <Copy className="h-4 w-4" />
                       </Button>
@@ -458,6 +504,7 @@ export default function DashboardPage() {
                               size="sm"
                               variant="ghost"
                               className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                              disabled={!session.is_active}
                             >
                               <Edit2 className="h-3 w-3" />
                             </Button>
@@ -481,6 +528,7 @@ export default function DashboardPage() {
                             variant="outline"
                             size="sm"
                             className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                            disabled={!session.is_active}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
@@ -490,6 +538,7 @@ export default function DashboardPage() {
                           size="sm"
                           onClick={() => copyToClipboard(`${window.location.origin}/view/${session.id}`, "view")}
                           className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                          disabled={!session.is_active}
                         >
                           <Copy className="h-4 w-4" />
                         </Button>
@@ -511,6 +560,7 @@ export default function DashboardPage() {
                             variant="outline"
                             size="sm"
                             className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                            disabled={!session.is_active}
                           >
                             <ExternalLink className="h-4 w-4" />
                           </Button>
@@ -520,6 +570,7 @@ export default function DashboardPage() {
                           size="sm"
                           onClick={() => copyToClipboard(`${window.location.origin}/draw/${session.id}`, "draw")}
                           className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                          disabled={!session.is_active}
                         >
                           <Copy className="h-4 w-4" />
                         </Button>

@@ -109,8 +109,8 @@ export async function POST(request: NextRequest) {
     })
 
     const session = await sql`
-      INSERT INTO sessions (id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count)
-      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet}, true, 0, 0)
+      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
+      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet})
       RETURNING *
     `
 

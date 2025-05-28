@@ -45,7 +45,7 @@ export class SessionService {
     return result[0]
   }
 
-  // Get session by ID
+  // Get session by ID (only active sessions)
   static async getById(id: string): Promise<Session | null> {
     const result = await sql`
       SELECT * FROM sessions 
@@ -54,14 +54,22 @@ export class SessionService {
     return result[0] || null
   }
 
-  // Get sessions by owner
-  static async getByOwner(owner_id: number): Promise<Session[]> {
-    console.log("Fetching sessions for owner_id:", owner_id)
-    const result = await sql`
-      SELECT * FROM sessions 
-      WHERE owner_id = ${owner_id} 
-      ORDER BY created_at DESC
-    `
+  // Get sessions by owner (only active sessions by default)
+  static async getByOwner(owner_id: number, includeInactive = false): Promise<Session[]> {
+    console.log("Fetching sessions for owner_id:", owner_id, "includeInactive:", includeInactive)
+
+    const result = includeInactive
+      ? await sql`
+          SELECT * FROM sessions 
+          WHERE owner_id = ${owner_id} 
+          ORDER BY created_at DESC
+        `
+      : await sql`
+          SELECT * FROM sessions 
+          WHERE owner_id = ${owner_id} AND is_active = true
+          ORDER BY created_at DESC
+        `
+
     console.log("Found sessions:", result.length)
     return result
   }
@@ -124,6 +132,17 @@ export class SessionService {
         return result[0] || null
       }
 
+      if (data.is_active !== undefined) {
+        console.log("Updating session active status:", id, "to:", data.is_active)
+        const result = await sql`
+          UPDATE sessions 
+          SET is_active = ${data.is_active}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        return result[0] || null
+      }
+
       return null
     } catch (error) {
       console.error("Error updating session:", error)
@@ -133,15 +152,38 @@ export class SessionService {
 
   // Delete session (soft delete)
   static async delete(id: string): Promise<boolean> {
+    console.log("Soft deleting session:", id)
     const result = await sql`
       UPDATE sessions 
-      SET is_active = false 
+      SET is_active = false, updated_at = NOW()
       WHERE id = ${id}
     `
     return result.length > 0
   }
 
-  // Get session with stats
+  // Permanently delete session (hard delete)
+  static async permanentDelete(id: string): Promise<boolean> {
+    console.log("Permanently deleting session:", id)
+    const result = await sql`
+      DELETE FROM sessions 
+      WHERE id = ${id}
+    `
+    return result.length > 0
+  }
+
+  // Reactivate session
+  static async reactivate(id: string): Promise<Session | null> {
+    console.log("Reactivating session:", id)
+    const result = await sql`
+      UPDATE sessions 
+      SET is_active = true, updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `
+    return result[0] || null
+  }
+
+  // Get session with stats (only active sessions)
   static async getWithStats(id: string): Promise<(Session & SessionStats) | null> {
     const result = await sql`
       SELECT s.*, 
@@ -161,7 +203,7 @@ export class SessionService {
     await sql`
       UPDATE sessions 
       SET canvas_data = ${canvas_data}, updated_at = NOW() 
-      WHERE id = ${id}
+      WHERE id = ${id} AND is_active = true
     `
   }
 
