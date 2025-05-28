@@ -20,104 +20,148 @@ export interface CreateUserData {
 export class UserService {
   // Create a new user
   static async create(data: CreateUserData): Promise<User> {
-    // Hash the password
-    const saltRounds = 12
-    const password_hash = await bcrypt.hash(data.password, saltRounds)
+    try {
+      // Hash the password
+      const saltRounds = 12
+      const password_hash = await bcrypt.hash(data.password, saltRounds)
 
-    // Generate user ID
-    const id = Math.random().toString(36).substring(2, 14)
+      // Generate user ID
+      const id = Math.random().toString(36).substring(2, 14)
 
-    const result = await query(
-      `INSERT INTO users (id, username, email, password_hash, wallet_address)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, username, email, wallet_address, created_at, updated_at`,
-      [id, data.username, data.email, password_hash, data.wallet_address],
-    )
-    return result.rows[0]
+      console.log("Creating user with data:", {
+        id,
+        username: data.username,
+        email: data.email,
+        wallet_address: data.wallet_address,
+      })
+
+      const result = await query(
+        `INSERT INTO users (id, username, email, password_hash, wallet_address)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, username, email, wallet_address, created_at, updated_at`,
+        [id, data.username, data.email, password_hash, data.wallet_address || null],
+      )
+
+      console.log("User created successfully:", result.rows[0])
+      return result.rows[0]
+    } catch (error) {
+      console.error("Error creating user:", error)
+      throw error
+    }
   }
 
   // Get user by email
   static async getByEmail(email: string): Promise<User | null> {
-    const result = await query(
-      "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE email = $1",
-      [email],
-    )
-    return result.rows[0] || null
+    try {
+      const result = await query(
+        "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE email = $1",
+        [email],
+      )
+      return result.rows[0] || null
+    } catch (error) {
+      console.error("Error getting user by email:", error)
+      throw error
+    }
   }
 
   // Get user by ID
   static async getById(id: string): Promise<User | null> {
-    const result = await query(
-      "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE id = $1",
-      [id],
-    )
-    return result.rows[0] || null
+    try {
+      const result = await query(
+        "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE id = $1",
+        [id],
+      )
+      return result.rows[0] || null
+    } catch (error) {
+      console.error("Error getting user by ID:", error)
+      throw error
+    }
   }
 
   // Verify password
   static async verifyPassword(email: string, password: string): Promise<User | null> {
-    const result = await query(
-      "SELECT id, username, email, password_hash, wallet_address, created_at, updated_at FROM users WHERE email = $1",
-      [email],
-    )
+    try {
+      const result = await query(
+        "SELECT id, username, email, password_hash, wallet_address, created_at, updated_at FROM users WHERE email = $1",
+        [email],
+      )
 
-    const user = result.rows[0]
-    if (!user) return null
+      const user = result.rows[0]
+      if (!user) return null
 
-    const isValid = await bcrypt.compare(password, user.password_hash)
-    if (!isValid) return null
+      const isValid = await bcrypt.compare(password, user.password_hash)
+      if (!isValid) return null
 
-    // Return user without password hash
-    const { password_hash, ...userWithoutPassword } = user
-    return userWithoutPassword
+      // Return user without password hash
+      const { password_hash, ...userWithoutPassword } = user
+      return userWithoutPassword
+    } catch (error) {
+      console.error("Error verifying password:", error)
+      throw error
+    }
   }
 
   // Update user
   static async update(id: string, data: Partial<CreateUserData>): Promise<User | null> {
-    const updates = []
-    const values = []
-    let paramCount = 1
+    try {
+      const updates = []
+      const values = []
+      let paramCount = 1
 
-    if (data.username) {
-      updates.push(`username = $${paramCount++}`)
-      values.push(data.username)
-    }
-    if (data.email) {
-      updates.push(`email = $${paramCount++}`)
-      values.push(data.email)
-    }
-    if (data.wallet_address !== undefined) {
-      updates.push(`wallet_address = $${paramCount++}`)
-      values.push(data.wallet_address)
-    }
-    if (data.password) {
-      const password_hash = await bcrypt.hash(data.password, 12)
-      updates.push(`password_hash = $${paramCount++}`)
-      values.push(password_hash)
-    }
+      if (data.username) {
+        updates.push(`username = $${paramCount++}`)
+        values.push(data.username)
+      }
+      if (data.email) {
+        updates.push(`email = $${paramCount++}`)
+        values.push(data.email)
+      }
+      if (data.wallet_address !== undefined) {
+        updates.push(`wallet_address = $${paramCount++}`)
+        values.push(data.wallet_address)
+      }
+      if (data.password) {
+        const password_hash = await bcrypt.hash(data.password, 12)
+        updates.push(`password_hash = $${paramCount++}`)
+        values.push(password_hash)
+      }
 
-    if (updates.length === 0) return null
+      if (updates.length === 0) return null
 
-    updates.push(`updated_at = NOW()`)
-    values.push(id)
+      updates.push(`updated_at = NOW()`)
+      values.push(id)
 
-    const result = await query(
-      `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramCount} 
-       RETURNING id, username, email, wallet_address, created_at, updated_at`,
-      values,
-    )
-    return result.rows[0] || null
+      const result = await query(
+        `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramCount} 
+         RETURNING id, username, email, wallet_address, created_at, updated_at`,
+        values,
+      )
+      return result.rows[0] || null
+    } catch (error) {
+      console.error("Error updating user:", error)
+      throw error
+    }
   }
 
   // Check if email exists
   static async emailExists(email: string): Promise<boolean> {
-    const result = await query("SELECT 1 FROM users WHERE email = $1", [email])
-    return result.rows.length > 0
+    try {
+      const result = await query("SELECT 1 FROM users WHERE email = $1", [email])
+      return result.rows.length > 0
+    } catch (error) {
+      console.error("Error checking email exists:", error)
+      throw error
+    }
   }
 
   // Check if username exists
   static async usernameExists(username: string): Promise<boolean> {
-    const result = await query("SELECT 1 FROM users WHERE username = $1", [username])
-    return result.rows.length > 0
+    try {
+      const result = await query("SELECT 1 FROM users WHERE username = $1", [username])
+      return result.rows.length > 0
+    } catch (error) {
+      console.error("Error checking username exists:", error)
+      throw error
+    }
   }
 }
