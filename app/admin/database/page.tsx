@@ -1,50 +1,75 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { toast } from "@/components/ui/use-toast"
+import { Loader2, CheckCircle, AlertCircle, Database, RefreshCw, TestTube } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, CheckCircle, AlertCircle, Database, RefreshCw } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
 
-export default function DatabaseSetupPage() {
+export default function DatabasePage() {
+  const [dbUrl, setDbUrl] = useState("")
   const [isCheckingConnection, setIsCheckingConnection] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle")
   const [connectionDetails, setConnectionDetails] = useState<any>(null)
-
   const [isRunningMigrations, setIsRunningMigrations] = useState(false)
   const [migrationStatus, setMigrationStatus] = useState<"idle" | "success" | "error">("idle")
   const [migrationDetails, setMigrationDetails] = useState<any>(null)
 
-  const { toast } = useToast()
+  const [isTestingDb, setIsTestingDb] = useState(false)
+  const [dbTestStatus, setDbTestStatus] = useState<"idle" | "success" | "error">("idle")
+  const [dbTestDetails, setDbTestDetails] = useState<any>(null)
+
+  useEffect(() => {
+    // Load from local storage on mount
+    const storedDbUrl = localStorage.getItem("dbUrl")
+    if (storedDbUrl) {
+      setDbUrl(storedDbUrl)
+    }
+  }, [])
+
+  useEffect(() => {
+    // Save to local storage whenever dbUrl changes
+    localStorage.setItem("dbUrl", dbUrl)
+  }, [dbUrl])
 
   const checkConnection = async () => {
     setIsCheckingConnection(true)
     setConnectionStatus("idle")
 
     try {
-      const response = await fetch("/api/health")
+      const response = await fetch("/api/check-db-connection", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ dbUrl }),
+      })
       const data = await response.json()
 
-      if (data.status === "healthy") {
+      if (data.success) {
         setConnectionStatus("success")
         setConnectionDetails(data)
         toast({
           title: "Database connection successful",
-          description: `Connected to Neon database at ${new Date(data.timestamp).toLocaleString()}`,
+          description: "Database is reachable and responding",
         })
       } else {
         setConnectionStatus("error")
         setConnectionDetails(data)
         toast({
           title: "Database connection failed",
-          description: data.error || "Unknown error",
+          description: data.message || "Unknown error",
           variant: "destructive",
         })
       }
     } catch (error) {
       setConnectionStatus("error")
-      setConnectionDetails({ error: error instanceof Error ? error.message : "Unknown error" })
+      setConnectionDetails({
+        error: error instanceof Error ? error.message : "Unknown error",
+      })
       toast({
         title: "Database connection failed",
         description: "Could not connect to the database. Check console for details.",
@@ -60,33 +85,39 @@ export default function DatabaseSetupPage() {
     setMigrationStatus("idle")
 
     try {
-      const response = await fetch("/api/migrate", {
+      const response = await fetch("/api/migrate-db", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ dbUrl }),
       })
       const data = await response.json()
 
-      if (response.ok) {
+      if (data.success) {
         setMigrationStatus("success")
         setMigrationDetails(data)
         toast({
-          title: "Migrations completed successfully",
-          description: "All database tables have been created",
+          title: "Database migration successful",
+          description: "Database schema has been updated",
         })
       } else {
         setMigrationStatus("error")
         setMigrationDetails(data)
         toast({
-          title: "Migrations failed",
-          description: data.error || "Unknown error",
+          title: "Database migration failed",
+          description: data.message || "Unknown error",
           variant: "destructive",
         })
       }
     } catch (error) {
       setMigrationStatus("error")
-      setMigrationDetails({ error: error instanceof Error ? error.message : "Unknown error" })
+      setMigrationDetails({
+        error: error instanceof Error ? error.message : "Unknown error",
+      })
       toast({
-        title: "Migrations failed",
-        description: "Could not run migrations. Check console for details.",
+        title: "Database migration failed",
+        description: "Could not run database migrations. Check console for details.",
         variant: "destructive",
       })
     } finally {
@@ -94,142 +125,244 @@ export default function DatabaseSetupPage() {
     }
   }
 
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6 text-white">database setup</h1>
+  const testDatabase = async () => {
+    setIsTestingDb(true)
+    setDbTestStatus("idle")
 
-      <div className="grid gap-6 max-w-2xl mx-auto">
-        {/* Database Connection */}
+    try {
+      const response = await fetch("/api/test-db")
+      const data = await response.json()
+
+      if (data.success) {
+        setDbTestStatus("success")
+        setDbTestDetails(data)
+        toast({
+          title: "Database test successful",
+          description: "Database queries are working correctly",
+        })
+      } else {
+        setDbTestStatus("error")
+        setDbTestDetails(data)
+        toast({
+          title: "Database test failed",
+          description: data.message || "Unknown error",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      setDbTestStatus("error")
+      setDbTestDetails({ error: error instanceof Error ? error.message : "Unknown error" })
+      toast({
+        title: "Database test failed",
+        description: "Could not test database queries. Check console for details.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsTestingDb(false)
+    }
+  }
+
+  return (
+    <div className="container mx-auto py-10">
+      <h1 className="text-3xl font-semibold mb-5">Database Management</h1>
+
+      <Card className="pump-card border-gray-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Database className="h-5 w-5 text-[#00ff88]" />
+            database connection
+          </CardTitle>
+          <CardDescription className="text-gray-400">Manage your database connection settings.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid w-full max-w-sm items-center gap-1.5">
+            <Label htmlFor="dbUrl">Database URL</Label>
+            <Input
+              type="text"
+              id="dbUrl"
+              placeholder="Enter your database connection URL"
+              value={dbUrl}
+              onChange={(e) => setDbUrl(e.target.value)}
+            />
+          </div>
+        </CardContent>
+        <CardFooter className="flex gap-2">
+          <Button
+            onClick={checkConnection}
+            disabled={isCheckingConnection}
+            className="pump-button text-black font-semibold"
+          >
+            {isCheckingConnection ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                checking...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                test connection
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={testDatabase}
+            disabled={isTestingDb}
+            variant="outline"
+            className="border-gray-700 text-gray-300 hover:bg-gray-800"
+          >
+            {isTestingDb ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                testing...
+              </>
+            ) : (
+              <>
+                <TestTube className="mr-2 h-4 w-4" />
+                test queries
+              </>
+            )}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      {/* Database Test Results */}
+      {dbTestStatus !== "idle" && (
         <Card className="pump-card border-gray-800">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
-              <Database className="h-5 w-5 text-[#00ff88]" />
-              database connection
+              <TestTube className="h-5 w-5 text-[#00ff88]" />
+              database query test
             </CardTitle>
-            <CardDescription className="text-gray-400">
-              check if your application can connect to the neon database
-            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {dbTestStatus === "success" && (
+              <Alert className="bg-green-950/20 border-green-500/30">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <AlertDescription className="text-green-400">
+                  Database queries are working correctly!
+                  {dbTestDetails?.result && (
+                    <div className="mt-2 text-xs font-mono">Test result: {JSON.stringify(dbTestDetails.result)}</div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {dbTestStatus === "error" && (
+              <Alert className="bg-red-950/20 border-red-500/30">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                <AlertDescription className="text-red-400">
+                  Database query test failed: {dbTestDetails?.message || dbTestDetails?.error || "Unknown error"}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Connection Status */}
+      {connectionStatus !== "idle" && (
+        <Card className="pump-card border-gray-800">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              {connectionStatus === "success" ? (
+                <CheckCircle className="h-5 w-5 text-[#00ff88]" />
+              ) : (
+                <AlertCircle className="h-5 w-5 text-red-500" />
+              )}
+              database connection status
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {connectionStatus === "success" && (
-              <Alert className="bg-green-950/20 border-green-500/30 mb-4">
+              <Alert className="bg-green-950/20 border-green-500/30">
                 <CheckCircle className="h-4 w-4 text-green-500" />
                 <AlertDescription className="text-green-400">
-                  Successfully connected to the database at {new Date(connectionDetails.timestamp).toLocaleString()}
+                  Database connection is successful!
+                  {connectionDetails?.version && (
+                    <div className="mt-2 text-xs font-mono">Database version: {connectionDetails.version}</div>
+                  )}
                 </AlertDescription>
               </Alert>
             )}
 
             {connectionStatus === "error" && (
-              <Alert className="bg-red-950/20 border-red-500/30 mb-4">
+              <Alert className="bg-red-950/20 border-red-500/30">
                 <AlertCircle className="h-4 w-4 text-red-500" />
                 <AlertDescription className="text-red-400">
-                  Failed to connect to the database: {connectionDetails?.error || "Unknown error"}
+                  Database connection failed:{" "}
+                  {connectionDetails?.message || connectionDetails?.error || "Unknown error"}
                 </AlertDescription>
               </Alert>
             )}
-
-            <div className="text-sm text-gray-400 mb-4">
-              <p>This will test the connection to your Neon database using the DATABASE_URL environment variable.</p>
-            </div>
           </CardContent>
-          <CardFooter>
-            <Button
-              onClick={checkConnection}
-              disabled={isCheckingConnection}
-              className="pump-button text-black font-semibold"
-            >
-              {isCheckingConnection ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  checking connection...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  test database connection
-                </>
-              )}
-            </Button>
-          </CardFooter>
         </Card>
+      )}
 
-        {/* Run Migrations */}
-        <Card className="pump-card border-gray-800">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
+      {/* Migration Status */}
+      <Card className="pump-card border-gray-800">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            {migrationStatus === "success" ? (
+              <CheckCircle className="h-5 w-5 text-[#00ff88]" />
+            ) : (
               <Database className="h-5 w-5 text-[#00ff88]" />
-              database migrations
-            </CardTitle>
-            <CardDescription className="text-gray-400">
-              create all required tables in your neon database
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {migrationStatus === "success" && (
-              <Alert className="bg-green-950/20 border-green-500/30 mb-4">
-                <CheckCircle className="h-4 w-4 text-green-500" />
-                <AlertDescription className="text-green-400">
-                  Migrations completed successfully! All database tables have been created.
-                </AlertDescription>
-              </Alert>
             )}
+            database migrations
+          </CardTitle>
+          <CardDescription className="text-gray-400">Run database migrations to update the schema.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {migrationStatus === "success" && (
+            <Alert className="bg-green-950/20 border-green-500/30">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              <AlertDescription className="text-green-400">
+                Database migration is successful!
+                {migrationDetails?.message && <div className="mt-2 text-xs font-mono">{migrationDetails.message}</div>}
+              </AlertDescription>
+            </Alert>
+          )}
 
-            {migrationStatus === "error" && (
-              <Alert className="bg-red-950/20 border-red-500/30 mb-4">
-                <AlertCircle className="h-4 w-4 text-red-500" />
-                <AlertDescription className="text-red-400">
-                  Failed to run migrations: {migrationDetails?.error || "Unknown error"}
-                </AlertDescription>
-              </Alert>
+          {migrationStatus === "error" && (
+            <Alert className="bg-red-950/20 border-red-500/30">
+              <AlertCircle className="h-4 w-4 text-red-500" />
+              <AlertDescription className="text-red-400">
+                Database migration failed: {migrationDetails?.message || migrationDetails?.error || "Unknown error"}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {migrationStatus === "idle" && (
+            <Alert className="bg-gray-950/20 border-gray-500/30">
+              <Database className="h-4 w-4 text-gray-500" />
+              <AlertDescription className="text-gray-400">No migrations have been run yet.</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+        <CardFooter>
+          <Button
+            onClick={runMigrations}
+            disabled={isRunningMigrations || (connectionStatus !== "success" && dbTestStatus !== "success")}
+            className="pump-button text-black font-semibold"
+          >
+            {isRunningMigrations ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                running migrations...
+              </>
+            ) : (
+              "run migrations"
             )}
+          </Button>
+        </CardFooter>
+      </Card>
 
-            <div className="text-sm text-gray-400 mb-4">
-              <p>This will create the following tables in your database:</p>
-              <ul className="list-disc list-inside mt-2 space-y-1">
-                <li>sessions - Stores drawing session information</li>
-                <li>session_stats - Tracks statistics for each session</li>
-                <li>user_tokens - Manages user token balances</li>
-              </ul>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button
-              onClick={runMigrations}
-              disabled={isRunningMigrations}
-              className="pump-button text-black font-semibold"
-            >
-              {isRunningMigrations ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  running migrations...
-                </>
-              ) : (
-                <>
-                  <Database className="mr-2 h-4 w-4" />
-                  run database migrations
-                </>
-              )}
-            </Button>
-          </CardFooter>
-        </Card>
-
-        {/* Next Steps */}
-        {connectionStatus === "success" && migrationStatus === "success" && (
-          <Card className="pump-card border-[#00ff88]/30 bg-[#00ff88]/5">
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <CheckCircle className="h-12 w-12 text-[#00ff88] mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-white mb-2">Database Setup Complete!</h3>
-                <p className="text-gray-400">
-                  Your database is connected and all tables have been created. You're ready to start using the
-                  application!
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      {/* Final Success */}
+      {(connectionStatus === "success" || dbTestStatus === "success") && migrationStatus === "success" && (
+        <Alert className="mt-5 bg-green-950/20 border-green-500/30">
+          <CheckCircle className="h-4 w-4 text-green-500" />
+          <AlertDescription className="text-green-400">Database is fully configured and up to date!</AlertDescription>
+        </Alert>
+      )}
     </div>
   )
 }
