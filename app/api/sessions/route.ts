@@ -19,45 +19,18 @@ export async function GET(request: NextRequest) {
 
     console.log("Fetching sessions for owner_id:", ownerIdNum)
 
-    // First, check if the sessions table exists and has the right structure
-    try {
-      const tableCheck = await sql`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'sessions' AND table_schema = 'public'
-      `
-      console.log(
-        "Sessions table columns:",
-        tableCheck.map((c) => c.column_name),
-      )
-
-      // Check if owner_id column exists
-      const hasOwnerIdColumn = tableCheck.some((col) => col.column_name === "owner_id")
-
-      if (!hasOwnerIdColumn) {
-        console.log("Adding missing owner_id column...")
-        await sql`ALTER TABLE sessions ADD COLUMN owner_id INTEGER REFERENCES users(id)`
-        console.log("owner_id column added successfully")
-      }
-
-      // Check if streamer_wallet column exists
-      const hasStreamerWalletColumn = tableCheck.some((col) => col.column_name === "streamer_wallet")
-
-      if (!hasStreamerWalletColumn) {
-        console.log("Adding missing streamer_wallet column...")
-        await sql`ALTER TABLE sessions ADD COLUMN streamer_wallet VARCHAR(255)`
-        console.log("streamer_wallet column added successfully")
-      }
-    } catch (error) {
-      console.error("Error checking/fixing sessions table:", error)
-      return NextResponse.json({ error: "Database table issue" }, { status: 500 })
-    }
-
     // Now try to fetch sessions
     const sessions = await sql`
-      SELECT * FROM sessions 
-      WHERE owner_id = ${ownerIdNum} 
-      ORDER BY created_at DESC
+      SELECT s.*, 
+             COALESCE(st.lines_drawn, 0) as lines_drawn,
+             COALESCE(st.nukes_used, 0) as nukes_used,
+             COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+             COALESCE(st.unique_participants, 0) as unique_participants,
+             0 as active_viewers
+      FROM sessions s
+      LEFT JOIN session_stats st ON s.session_id = st.session_id
+      WHERE s.owner_id = ${ownerIdNum} 
+      ORDER BY s.created_at DESC
     `
 
     console.log("Found sessions:", sessions.length)
@@ -91,27 +64,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate session ID
-    const id = Math.random().toString(36).substring(2, 14)
+    const sessionId = Math.random().toString(36).substring(2, 14)
 
-    console.log("Creating session:", { id, name, owner_id: ownerIdNum, streamer_wallet })
-
-    console.log("About to insert session with values:", {
-      id: id,
-      name: name,
-      owner_id: ownerIdNum,
-      streamer_wallet: streamer_wallet,
-      types: {
-        id: typeof id,
-        name: typeof name,
-        owner_id: typeof ownerIdNum,
-        streamer_wallet: typeof streamer_wallet,
-      },
-    })
+    console.log("Creating session:", { session_id: sessionId, name, owner_id: ownerIdNum, streamer_wallet })
 
     const session = await sql`
-      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
-      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet})
-      RETURNING *
+      INSERT INTO sessions (session_id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count, user_id)
+      VALUES (${sessionId}, ${name}, ${ownerIdNum}, ${streamer_wallet}, true, 0, 0, ${ownerIdNum})
+      RETURNING *, session_id as id
     `
 
     console.log("Session created:", session[0])
