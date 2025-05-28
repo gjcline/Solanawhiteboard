@@ -31,10 +31,10 @@ export default function LoginPage() {
         description: "you're now connected and ready to pump some draws.",
       })
       router.push("/dashboard")
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "connection failed",
-        description: "check your credentials and try again.",
+        description: error.message || "check your credentials and try again.",
         variant: "destructive",
       })
     } finally {
@@ -53,10 +53,10 @@ export default function LoginPage() {
         description: "welcome to draw.fun. time to start pumping draws!",
       })
       router.push("/dashboard")
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "registration failed",
-        description: "try again with different details.",
+        description: error.message || "try again with different details.",
         variant: "destructive",
       })
     } finally {
@@ -151,7 +151,9 @@ export default function LoginPage() {
                       onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })}
                       className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
                       required
+                      minLength={3}
                     />
+                    <p className="text-xs text-gray-500">at least 3 characters</p>
                   </div>
                   <div className="space-y-2">
                     <label htmlFor="reg-email" className="text-sm font-medium text-gray-300">
@@ -179,7 +181,9 @@ export default function LoginPage() {
                       onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
                       className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
                       required
+                      minLength={6}
                     />
+                    <p className="text-xs text-gray-500">at least 6 characters</p>
                   </div>
                   <Button type="submit" className="w-full pump-button text-black font-semibold" disabled={isLoading}>
                     {isLoading ? (

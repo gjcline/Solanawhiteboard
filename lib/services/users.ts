@@ -2,7 +2,7 @@ import { query } from "../database"
 import bcrypt from "bcryptjs"
 
 export interface User {
-  id: number // Changed from string to number since we're using SERIAL
+  id: number
   username: string
   email: string
   wallet_address?: string
@@ -42,8 +42,8 @@ export class UserService {
         [data.username, data.email, password_hash, data.wallet_address || null],
       )
 
-      console.log("User created successfully:", result.rows[0])
-      return result.rows[0]
+      console.log("User created successfully:", result.rows?.[0] || "No result returned")
+      return result.rows?.[0]
     } catch (error) {
       console.error("Error in UserService.create:", error)
       throw error
@@ -58,8 +58,8 @@ export class UserService {
         "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE email = $1",
         [email],
       )
-      console.log("Query result:", result.rows.length > 0 ? "User found" : "User not found")
-      return result.rows[0] || null
+      console.log("Query result:", result.rows?.length > 0 ? "User found" : "User not found")
+      return result.rows?.[0] || null
     } catch (error) {
       console.error("Error getting user by email:", error)
       throw error
@@ -74,7 +74,7 @@ export class UserService {
         "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE id = $1",
         [id],
       )
-      return result.rows[0] || null
+      return result.rows?.[0] || null
     } catch (error) {
       console.error("Error getting user by ID:", error)
       throw error
@@ -91,9 +91,9 @@ export class UserService {
         [email],
       )
 
-      console.log("User lookup result:", result.rows.length > 0 ? "User found" : "User not found")
+      console.log("User lookup result:", result.rows?.length > 0 ? "User found" : "User not found")
 
-      const user = result.rows[0]
+      const user = result.rows?.[0]
       if (!user) {
         console.log("No user found with email:", email)
         return null
@@ -150,7 +150,7 @@ export class UserService {
          RETURNING id, username, email, wallet_address, created_at, updated_at`,
         values,
       )
-      return result.rows[0] || null
+      return result.rows?.[0] || null
     } catch (error) {
       console.error("Error updating user:", error)
       throw error
@@ -161,12 +161,38 @@ export class UserService {
   static async emailExists(email: string): Promise<boolean> {
     try {
       console.log("Checking if email exists:", email)
+
+      // First check if the users table exists
+      try {
+        const tableCheck = await query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'users'
+          )
+        `)
+
+        if (!tableCheck.rows?.[0]?.exists) {
+          console.log("Users table does not exist")
+          return false
+        }
+      } catch (tableError) {
+        console.error("Error checking if users table exists:", tableError)
+        return false
+      }
+
       const result = await query("SELECT 1 FROM users WHERE email = $1", [email])
-      console.log("Email exists check result:", result.rows.length > 0)
-      return result.rows.length > 0
+
+      if (result && result.rows && Array.isArray(result.rows)) {
+        console.log("Email exists check result:", result.rows.length > 0)
+        return result.rows.length > 0
+      } else {
+        console.log("Query returned unexpected format:", result)
+        return false
+      }
     } catch (error) {
       console.error("Error checking email exists:", error)
-      throw error
+      return false
     }
   }
 
@@ -174,12 +200,38 @@ export class UserService {
   static async usernameExists(username: string): Promise<boolean> {
     try {
       console.log("Checking if username exists:", username)
+
+      // First check if the users table exists
+      try {
+        const tableCheck = await query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'users'
+          )
+        `)
+
+        if (!tableCheck.rows?.[0]?.exists) {
+          console.log("Users table does not exist")
+          return false
+        }
+      } catch (tableError) {
+        console.error("Error checking if users table exists:", tableError)
+        return false
+      }
+
       const result = await query("SELECT 1 FROM users WHERE username = $1", [username])
-      console.log("Username exists check result:", result.rows.length > 0)
-      return result.rows.length > 0
+
+      if (result && result.rows && Array.isArray(result.rows)) {
+        console.log("Username exists check result:", result.rows.length > 0)
+        return result.rows.length > 0
+      } else {
+        console.log("Query returned unexpected format:", result)
+        return false
+      }
     } catch (error) {
       console.error("Error checking username exists:", error)
-      throw error
+      return false
     }
   }
 }

@@ -8,13 +8,39 @@ export async function setupDatabase() {
     const testResult = await sql`SELECT NOW() as now, current_database() as db_name`
     console.log("✅ Connected to database:", testResult[0])
 
+    // Check existing tables first
+    console.log("🔍 Checking existing tables...")
+    const existingTables = await sql`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name
+    `
+    console.log(
+      "Existing tables:",
+      existingTables.map((t) => t.table_name),
+    )
+
+    // Check if users table exists and its structure
+    try {
+      const userTableStructure = await sql`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns 
+        WHERE table_name = 'users' AND table_schema = 'public'
+        ORDER BY ordinal_position
+      `
+      console.log("Users table structure:", userTableStructure)
+    } catch (error) {
+      console.log("Users table doesn't exist or error checking structure:", error)
+    }
+
     // Drop existing tables if they exist (for clean setup)
     console.log("🧹 Cleaning up existing tables...")
     await sql`DROP TABLE IF EXISTS user_tokens CASCADE`
     await sql`DROP TABLE IF EXISTS sessions CASCADE`
     await sql`DROP TABLE IF EXISTS users CASCADE`
 
-    // Create users table with SERIAL id (not custom string id)
+    // Create users table with correct structure
     console.log("👥 Creating users table...")
     await sql`
       CREATE TABLE users (
@@ -27,6 +53,16 @@ export async function setupDatabase() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `
+
+    // Verify users table was created correctly
+    console.log("🔍 Verifying users table structure...")
+    const newUserTableStructure = await sql`
+      SELECT column_name, data_type, is_nullable
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `
+    console.log("New users table structure:", newUserTableStructure)
 
     // Create sessions table
     console.log("📋 Creating sessions table...")
@@ -57,8 +93,8 @@ export async function setupDatabase() {
       )
     `
 
-    // Verify tables were created
-    const tables = await sql`
+    // Verify all tables were created
+    const finalTables = await sql`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'public'
@@ -67,7 +103,7 @@ export async function setupDatabase() {
 
     console.log(
       "🎉 Database setup complete! Tables created:",
-      tables.map((t) => t.table_name),
+      finalTables.map((t) => t.table_name),
     )
 
     // Test inserting a user to make sure everything works
@@ -87,7 +123,8 @@ export async function setupDatabase() {
       success: true,
       message: "Database setup completed successfully in production",
       database: testResult[0].db_name,
-      tables: tables.map((t) => t.table_name),
+      tables: finalTables.map((t) => t.table_name),
+      userTableStructure: newUserTableStructure,
       timestamp: testResult[0].now,
     }
   } catch (error) {
