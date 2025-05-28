@@ -2,6 +2,7 @@ import { sql } from "../database"
 
 export interface Session {
   id: string
+  session_id: string
   name: string
   owner_id: number
   streamer_wallet: string
@@ -37,7 +38,7 @@ export class SessionService {
     })
 
     const result = await sql`
-      INSERT INTO sessions (id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count)
+      INSERT INTO sessions (session_id, name, owner_id, streamer_wallet, is_active, total_earnings, viewer_count)
       VALUES (${data.id}, ${data.name}, ${data.owner_id}, ${data.streamer_wallet}, true, 0, 0)
       RETURNING *
     `
@@ -45,12 +46,21 @@ export class SessionService {
     return result[0]
   }
 
-  // Get session by ID (only active sessions)
-  static async getById(id: string): Promise<Session | null> {
-    const result = await sql`
-      SELECT * FROM sessions 
-      WHERE id = ${id} AND is_active = true
-    `
+  // Get session by ID (only active sessions by default)
+  static async getById(sessionId: string, includeInactive = false): Promise<Session | null> {
+    console.log("Getting session by ID:", sessionId, "includeInactive:", includeInactive)
+
+    const result = includeInactive
+      ? await sql`
+          SELECT * FROM sessions 
+          WHERE session_id = ${sessionId}
+        `
+      : await sql`
+          SELECT * FROM sessions 
+          WHERE session_id = ${sessionId} AND is_active = true
+        `
+
+    console.log("Session query result:", result[0] || "Not found")
     return result[0] || null
   }
 
@@ -60,14 +70,26 @@ export class SessionService {
 
     const result = includeInactive
       ? await sql`
-          SELECT * FROM sessions 
-          WHERE owner_id = ${owner_id} 
-          ORDER BY created_at DESC
+          SELECT s.*, 
+                 COALESCE(st.lines_drawn, 0) as lines_drawn,
+                 COALESCE(st.nukes_used, 0) as nukes_used,
+                 COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+                 COALESCE(st.unique_participants, 0) as unique_participants
+          FROM sessions s
+          LEFT JOIN session_stats st ON s.session_id = st.session_id
+          WHERE s.owner_id = ${owner_id} 
+          ORDER BY s.created_at DESC
         `
       : await sql`
-          SELECT * FROM sessions 
-          WHERE owner_id = ${owner_id} AND is_active = true
-          ORDER BY created_at DESC
+          SELECT s.*, 
+                 COALESCE(st.lines_drawn, 0) as lines_drawn,
+                 COALESCE(st.nukes_used, 0) as nukes_used,
+                 COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+                 COALESCE(st.unique_participants, 0) as unique_participants
+          FROM sessions s
+          LEFT JOIN session_stats st ON s.session_id = st.session_id
+          WHERE s.owner_id = ${owner_id} AND s.is_active = true
+          ORDER BY s.created_at DESC
         `
 
     console.log("Found sessions:", result.length)
@@ -75,8 +97,8 @@ export class SessionService {
   }
 
   // Update session
-  static async update(id: string, data: Partial<Session>): Promise<Session | null> {
-    console.log("Updating session:", id, "with data:", data)
+  static async update(sessionId: string, data: Partial<Session>): Promise<Session | null> {
+    console.log("Updating session:", sessionId, "with data:", data)
 
     try {
       // Handle different update fields
@@ -84,18 +106,18 @@ export class SessionService {
         const result = await sql`
           UPDATE sessions 
           SET name = ${data.name}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         return result[0] || null
       }
 
       if (data.streamer_wallet !== undefined) {
-        console.log("Updating streamer wallet for session:", id, "to:", data.streamer_wallet)
+        console.log("Updating streamer wallet for session:", sessionId, "to:", data.streamer_wallet)
         const result = await sql`
           UPDATE sessions 
           SET streamer_wallet = ${data.streamer_wallet}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         console.log("Wallet update result:", result[0] || "No result")
@@ -106,7 +128,7 @@ export class SessionService {
         const result = await sql`
           UPDATE sessions 
           SET canvas_data = ${data.canvas_data}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         return result[0] || null
@@ -116,7 +138,7 @@ export class SessionService {
         const result = await sql`
           UPDATE sessions 
           SET total_earnings = ${data.total_earnings}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         return result[0] || null
@@ -126,18 +148,18 @@ export class SessionService {
         const result = await sql`
           UPDATE sessions 
           SET viewer_count = ${data.viewer_count}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         return result[0] || null
       }
 
       if (data.is_active !== undefined) {
-        console.log("Updating session active status:", id, "to:", data.is_active)
+        console.log("Updating session active status:", sessionId, "to:", data.is_active)
         const result = await sql`
           UPDATE sessions 
           SET is_active = ${data.is_active}, updated_at = NOW() 
-          WHERE id = ${id} 
+          WHERE session_id = ${sessionId} 
           RETURNING *
         `
         return result[0] || null
@@ -150,60 +172,81 @@ export class SessionService {
     }
   }
 
-  // Delete session (soft delete)
-  static async delete(id: string): Promise<boolean> {
-    console.log("Soft deleting session:", id)
+  // Deactivate session (soft delete)
+  static async delete(sessionId: string): Promise<boolean> {
+    console.log("Soft deleting (deactivating) session:", sessionId)
     const result = await sql`
       UPDATE sessions 
       SET is_active = false, updated_at = NOW()
-      WHERE id = ${id}
+      WHERE session_id = ${sessionId}
     `
     return result.length > 0
   }
 
   // Permanently delete session (hard delete)
-  static async permanentDelete(id: string): Promise<boolean> {
-    console.log("Permanently deleting session:", id)
+  static async permanentDelete(sessionId: string): Promise<boolean> {
+    console.log("Permanently deleting session:", sessionId)
+
+    // First delete related records
+    await sql`DELETE FROM session_stats WHERE session_id = ${sessionId}`
+    await sql`DELETE FROM user_tokens WHERE session_id = ${sessionId}`
+
+    // Then delete the session
     const result = await sql`
       DELETE FROM sessions 
-      WHERE id = ${id}
+      WHERE session_id = ${sessionId}
     `
     return result.length > 0
   }
 
   // Reactivate session
-  static async reactivate(id: string): Promise<Session | null> {
-    console.log("Reactivating session:", id)
+  static async reactivate(sessionId: string): Promise<Session | null> {
+    console.log("Reactivating session:", sessionId)
     const result = await sql`
       UPDATE sessions 
       SET is_active = true, updated_at = NOW()
-      WHERE id = ${id}
+      WHERE session_id = ${sessionId}
       RETURNING *
     `
     return result[0] || null
   }
 
-  // Get session with stats (only active sessions)
-  static async getWithStats(id: string): Promise<(Session & SessionStats) | null> {
-    const result = await sql`
-      SELECT s.*, 
-             COALESCE(st.lines_drawn, 0) as lines_drawn,
-             COALESCE(st.nukes_used, 0) as nukes_used,
-             COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
-             COALESCE(st.unique_participants, 0) as unique_participants
-      FROM sessions s
-      LEFT JOIN session_stats st ON s.id = st.session_id
-      WHERE s.id = ${id} AND s.is_active = true
-    `
+  // Get session with stats (only active sessions by default)
+  static async getWithStats(sessionId: string, includeInactive = false): Promise<(Session & SessionStats) | null> {
+    console.log("Getting session with stats:", sessionId, "includeInactive:", includeInactive)
+
+    const result = includeInactive
+      ? await sql`
+          SELECT s.*, 
+                 COALESCE(st.lines_drawn, 0) as lines_drawn,
+                 COALESCE(st.nukes_used, 0) as nukes_used,
+                 COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+                 COALESCE(st.unique_participants, 0) as unique_participants
+          FROM sessions s
+          LEFT JOIN session_stats st ON s.session_id = st.session_id
+          WHERE s.session_id = ${sessionId}
+        `
+      : await sql`
+          SELECT s.*, 
+                 COALESCE(st.lines_drawn, 0) as lines_drawn,
+                 COALESCE(st.nukes_used, 0) as nukes_used,
+                 COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+                 COALESCE(st.unique_participants, 0) as unique_participants
+          FROM sessions s
+          LEFT JOIN session_stats st ON s.session_id = st.session_id
+          WHERE s.session_id = ${sessionId} AND s.is_active = true
+        `
+
+    console.log("Session with stats result:", result[0] || "Not found")
     return result[0] || null
   }
 
   // Update canvas data
-  static async updateCanvas(id: string, canvas_data: string): Promise<void> {
+  static async updateCanvas(sessionId: string, canvas_data: string): Promise<void> {
     await sql`
       UPDATE sessions 
       SET canvas_data = ${canvas_data}, updated_at = NOW() 
-      WHERE id = ${id} AND is_active = true
+      WHERE session_id = ${sessionId} AND is_active = true
     `
   }
 

@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const { user, updateProfile } = useAuth()
   const { toast } = useToast()
   const router = useRouter()
-  const { sessions, loading, createSession, deleteSession, updateSession } = useSessions()
+  const { sessions, loading, createSession, deleteSession, updateSession, permanentDeleteSession } = useSessions()
   const [newSessionName, setNewSessionName] = useState("")
   const [newSessionWallet, setNewSessionWallet] = useState("")
   const [isCreating, setIsCreating] = useState(false)
@@ -100,9 +100,9 @@ export default function DashboardPage() {
     }
   }
 
-  const handleDeleteSession = async (sessionId: string) => {
+  const handleDeactivateSession = async (sessionId: string) => {
     try {
-      await deleteSession(sessionId)
+      await deleteSession(sessionId) // This does soft delete (deactivate)
 
       toast({
         title: "session deactivated",
@@ -111,6 +111,27 @@ export default function DashboardPage() {
     } catch (error) {
       toast({
         title: "failed to deactivate session",
+        description: "try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handlePermanentDeleteSession = async (sessionId: string) => {
+    if (!confirm("Are you sure you want to permanently delete this session? This action cannot be undone.")) {
+      return
+    }
+
+    try {
+      await permanentDeleteSession(sessionId) // This does hard delete
+
+      toast({
+        title: "session deleted permanently",
+        description: "the session and all its data have been permanently removed.",
+      })
+    } catch (error) {
+      toast({
+        title: "failed to delete session",
         description: "try again.",
         variant: "destructive",
       })
@@ -456,8 +477,18 @@ export default function DashboardPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDeleteSession(session.session_id || session.id)}
-                        className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                        onClick={() => handleDeactivateSession(session.session_id || session.id)}
+                        className="border-gray-700 text-orange-400 hover:bg-gray-800 hover:text-orange-300"
+                        title="Deactivate session (soft delete)"
+                      >
+                        <PowerOff className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePermanentDeleteSession(session.session_id || session.id)}
+                        className="border-gray-700 text-red-400 hover:bg-gray-800 hover:text-red-300"
+                        title="Permanently delete session (hard delete)"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
