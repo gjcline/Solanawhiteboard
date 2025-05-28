@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, AlertCircle, Zap, Timer, Bomb, DollarSign } from "lucide-react"
+import { Loader2, AlertCircle, Zap, Timer, Bomb, DollarSign, Wallet, Eye } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import WalletConnection from "@/components/wallet-connection"
 import PurchaseOptions from "@/components/purchase-options"
 import DrawingCanvas from "@/components/drawing-canvas"
@@ -25,6 +26,7 @@ export default function DrawPage() {
   // State management
   const [isLoading, setIsLoading] = useState(true)
   const [sessionExists, setSessionExists] = useState(false)
+  const [sessionData, setSessionData] = useState<any>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [walletBalance, setWalletBalance] = useState(0)
   const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
@@ -38,14 +40,13 @@ export default function DrawPage() {
     const validateSession = async () => {
       console.log("Validating session:", sessionId)
 
-      // Check if session exists via API call
       try {
         const response = await fetch(`/api/sessions/${sessionId}`)
         if (response.ok) {
           const data = await response.json()
-          // Only accept sessions that have a valid streamer wallet
-          if (data.session && data.session.streamer_wallet) {
+          if (data.session && data.session.streamer_wallet && data.session.is_active) {
             setSessionExists(true)
+            setSessionData(data.session)
             setIsLoading(false)
             return
           }
@@ -54,56 +55,12 @@ export default function DrawPage() {
         console.log("Session API check failed:", error)
       }
 
-      // Check if session exists in localStorage (legacy support)
-      const sessionWallet = localStorage.getItem(`session-wallet-${sessionId}`)
-      if (sessionWallet && sessionWallet !== "DemoWallet123456789") {
-        setSessionExists(true)
-        setIsLoading(false)
-        return
-      }
-
-      // Check in all user sessions
-      const allKeys = Object.keys(localStorage)
-      let sessionFound = false
-
-      for (const key of allKeys) {
-        if (key.startsWith("sessions-")) {
-          try {
-            const sessions = JSON.parse(localStorage.getItem(key) || "[]")
-            const session = sessions.find((s: any) => s.id === sessionId)
-            if (session) {
-              sessionFound = true
-
-              // Try to get the wallet for this session's owner
-              const userId = key.replace("sessions-", "")
-              const userWallet = localStorage.getItem(`wallet-${userId}`)
-
-              if (userWallet) {
-                localStorage.setItem(`session-wallet-${sessionId}`, userWallet)
-              }
-              break
-            }
-          } catch (error) {
-            console.error("Error parsing sessions from", key, ":", error)
-          }
-        }
-      }
-
-      // NO MORE FALLBACK TO DEMO WALLET
-      // Sessions must have a valid wallet configured
-      if (!sessionFound) {
-        console.log("Session not found or has no valid wallet")
-        setSessionExists(false)
-        setIsLoading(false)
-        return
-      }
-
-      setSessionExists(sessionFound)
+      setSessionExists(false)
       setIsLoading(false)
     }
 
     validateSession()
-  }, [sessionId, toast])
+  }, [sessionId])
 
   // Check for session deletion
   useEffect(() => {
@@ -166,9 +123,13 @@ export default function DrawPage() {
     }
   }, [tokenTypeUsed, useTheToken])
 
+  const openViewPage = () => {
+    window.open(`/view/${sessionId}`, "_blank")
+  }
+
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 flex items-center justify-center min-h-[50vh]">
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-[#00ff88]" />
           <p className="text-gray-400">Loading drawing session...</p>
@@ -179,192 +140,180 @@ export default function DrawPage() {
 
   if (!sessionExists) {
     return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <h1 className="text-3xl font-bold mb-4 text-white">session not found</h1>
-        <p className="text-gray-400 mb-6">
-          session ID: <span className="font-mono">{sessionId}</span>
-        </p>
-        <p className="text-gray-400 mb-6">
-          this drawing session doesn't exist, has been deleted, or doesn't have a valid receiving wallet configured.
-        </p>
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            make sure you have the correct session ID from the streamer. sessions require a valid wallet address to
-            accept payments.
-          </AlertDescription>
-        </Alert>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-3xl font-bold mb-4 text-white">session not found</h1>
+          <p className="text-gray-400 mb-6">
+            session ID: <span className="font-mono">{sessionId}</span>
+          </p>
+          <p className="text-gray-400 mb-6">
+            this drawing session doesn't exist, has been deleted, or doesn't have a valid receiving wallet configured.
+          </p>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              make sure you have the correct session ID from the streamer. sessions require a valid wallet address to
+              accept payments.
+            </AlertDescription>
+          </Alert>
+        </div>
       </div>
     )
   }
 
   if (sessionDeleted) {
     return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <h1 className="text-3xl font-bold mb-4 text-white">session ended</h1>
-        <p className="text-gray-400 mb-6">
-          session ID: <span className="font-mono">{sessionId}</span>
-        </p>
-        <p className="text-gray-400 mb-6">this drawing session has been ended by the streamer.</p>
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="text-red-400">
-            no more token purchases or drawing actions are allowed for this session.
-          </AlertDescription>
-        </Alert>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-3xl font-bold mb-4 text-white">session ended</h1>
+          <p className="text-gray-400 mb-6">
+            session ID: <span className="font-mono">{sessionId}</span>
+          </p>
+          <p className="text-gray-400 mb-6">this drawing session has been ended by the streamer.</p>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-red-400">
+              no more token purchases or drawing actions are allowed for this session.
+            </AlertDescription>
+          </Alert>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 relative">
+    <div className="min-h-screen bg-gray-900 relative">
       <DrawingBackground density={10} speed={0.2} />
 
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">token-based drawing</h1>
-        <p className="text-gray-400">
-          session: <span className="pump-text-gradient font-mono">{sessionId}</span>
-        </p>
-        <p className="text-sm text-gray-500 mt-1">
-          purchase tokens to draw lines or nuke the board. 50% goes to streamer, 50% to D3vCav3.
-        </p>
-      </div>
-
-      {/* Pricing Info */}
-      <Card className="mb-6 pump-card border-[#00ff88]/50">
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-white">
-            <Zap className="h-5 w-5 text-[#00ff88]" />
-            token pricing
-          </CardTitle>
-          <CardDescription className="text-gray-400">choose your interaction level with the whiteboard</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Timer className="h-4 w-4 text-[#00ff88]" />
-                <span className="text-white">single line</span>
-              </div>
-              <span className="text-[#00ff88] font-bold">0.005 SOL</span>
+      {/* Top Header Bar */}
+      <div className="bg-gray-800/90 backdrop-blur-sm border-b border-gray-700 sticky top-0 z-40">
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-white">{sessionData?.name || "Drawing Session"}</h1>
+              <p className="text-sm text-gray-400">
+                ID: <span className="pump-text-gradient font-mono">{sessionId}</span>
+              </p>
             </div>
-            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-[#00ff88]/30">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-[#00ff88]" />
-                <span className="text-white">10-line bundle</span>
-              </div>
-              <span className="text-[#00ff88] font-bold">0.02 SOL</span>
-            </div>
-            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-red-500/30">
-              <div className="flex items-center gap-2">
-                <Bomb className="h-4 w-4 text-red-400" />
-                <span className="text-white">nuke board</span>
-              </div>
-              <span className="text-red-400 font-bold">0.03 SOL</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Column - Wallet & Purchase */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* Wallet Connection */}
-          <Card className="pump-card border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white">connect wallet</CardTitle>
-              <CardDescription className="text-gray-400">
-                connect your phantom wallet to purchase tokens
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <WalletConnection
-                onWalletConnected={handleWalletConnected}
-                onWalletDisconnected={handleWalletDisconnected}
-                onBalanceUpdate={handleBalanceUpdate}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Token Status */}
-          {walletAddress && (
-            <Card className="pump-card border-gray-800">
-              <CardHeader>
-                <CardTitle className="text-white">your tokens</CardTitle>
-                <CardDescription className="text-gray-400">current token balance for this session</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Timer className="h-4 w-4 text-[#00ff88]" />
-                      <span className="text-white">line tokens</span>
-                    </div>
-                    <span className="text-[#00ff88] font-bold">{tokens?.lines}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Bomb className="h-4 w-4 text-red-400" />
-                      <span className="text-white">nuke tokens</span>
-                    </div>
-                    <span className="text-red-400 font-bold">{tokens?.nukes}</span>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openViewPage}
+                className="border-gray-600 text-gray-300 hover:bg-gray-700"
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                view mode
+              </Button>
+              {walletAddress && (
+                <div className="text-right">
+                  <div className="text-sm text-gray-400">your tokens</div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-[#00ff88]">{tokens?.lines} lines</span>
+                    <span className="text-red-400">{tokens?.nukes} nukes</span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {/* Purchase Options */}
-          {walletAddress && (
-            <Card className="pump-card border-gray-800">
-              <CardHeader>
-                <CardTitle className="text-white">purchase tokens</CardTitle>
-                <CardDescription className="text-gray-400">buy tokens to interact with the whiteboard</CardDescription>
+      <div className="container mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
+          {/* Left Sidebar - Wallet & Purchase */}
+          <div className="xl:col-span-1 space-y-4 xl:max-h-full xl:overflow-y-auto">
+            {/* Wallet Connection */}
+            <Card className="pump-card border-gray-700 bg-gray-800/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white text-lg flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-[#00ff88]" />
+                  phantom wallet
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <PurchaseOptions
-                  sessionId={sessionId}
-                  walletAddress={walletAddress}
-                  walletBalance={walletBalance}
-                  onPurchaseSuccess={handlePurchaseSuccess}
+                <WalletConnection
+                  onWalletConnected={handleWalletConnected}
+                  onWalletDisconnected={handleWalletDisconnected}
                   onBalanceUpdate={handleBalanceUpdate}
                 />
               </CardContent>
             </Card>
-          )}
-        </div>
 
-        {/* Right Column - Drawing Canvas */}
-        <div className="lg:col-span-2">
-          <Card className="pump-card border-gray-800">
-            <CardHeader>
-              <CardTitle className="text-white">interactive whiteboard</CardTitle>
-              <CardDescription className="text-gray-400">
-                use your tokens to draw lines (5s limit) or nuke the entire board
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DrawingCanvas
-                isReadOnly={false}
-                sessionId={sessionId}
-                walletAddress={walletAddress}
-                userTokens={tokens}
-                onTokenUsed={handleTokenUsed}
-              />
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+            {/* Token Pricing */}
+            <Card className="pump-card border-gray-700 bg-gray-800/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white text-lg flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-[#00ff88]" />
+                  token prices
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded">
+                  <div className="flex items-center gap-2">
+                    <Timer className="h-4 w-4 text-[#00ff88]" />
+                    <span className="text-white text-sm">single line</span>
+                  </div>
+                  <span className="text-[#00ff88] font-bold text-sm">0.005 SOL</span>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded border border-[#00ff88]/30">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-[#00ff88]" />
+                    <span className="text-white text-sm">10-pack</span>
+                  </div>
+                  <span className="text-[#00ff88] font-bold text-sm">0.02 SOL</span>
+                </div>
+                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded border border-red-500/30">
+                  <div className="flex items-center gap-2">
+                    <Bomb className="h-4 w-4 text-red-400" />
+                    <span className="text-white text-sm">nuke board</span>
+                  </div>
+                  <span className="text-red-400 font-bold text-sm">0.03 SOL</span>
+                </div>
+              </CardContent>
+            </Card>
 
-      <div className="mt-8 text-center">
-        <p className="text-gray-500 text-sm">
-          💡 <strong>how it works:</strong> purchase tokens above, then click and drag on the canvas to draw. each line
-          token gives you 5 seconds of drawing time.
-        </p>
-        <p className="text-gray-600 text-xs mt-2">
-          made with ❤️ by <span className="pump-text-gradient">D3vCav3</span> • powered by draw.fun • 50/50 revenue split
-        </p>
+            {/* Purchase Options */}
+            {walletAddress && (
+              <Card className="pump-card border-gray-700 bg-gray-800/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-white text-lg">buy tokens</CardTitle>
+                  <CardDescription className="text-gray-400 text-sm">50% to streamer • 50% to D3vCav3</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PurchaseOptions
+                    sessionId={sessionId}
+                    walletAddress={walletAddress}
+                    walletBalance={walletBalance}
+                    onPurchaseSuccess={handlePurchaseSuccess}
+                    onBalanceUpdate={handleBalanceUpdate}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Main Canvas Area */}
+          <div className="xl:col-span-3">
+            <Card className="pump-card border-gray-700 bg-gray-800/50 h-full">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white text-lg">interactive whiteboard</CardTitle>
+                <CardDescription className="text-gray-400 text-sm">
+                  use tokens to draw lines (5s limit) or nuke the entire board
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-[calc(100%-80px)]">
+                <DrawingCanvas
+                  isReadOnly={false}
+                  sessionId={sessionId}
+                  walletAddress={walletAddress}
+                  userTokens={tokens}
+                  onTokenUsed={handleTokenUsed}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   )
