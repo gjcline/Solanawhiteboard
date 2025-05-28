@@ -1,9 +1,9 @@
-import { query } from "../database"
+import { sql } from "../database"
 
 export interface Session {
   id: string
   name: string
-  owner_id: string
+  owner_id: number
   streamer_wallet: string
   is_active: boolean
   canvas_data?: string
@@ -25,76 +25,118 @@ export class SessionService {
   static async create(data: {
     id: string
     name: string
-    owner_id: string
+    owner_id: number
     streamer_wallet: string
   }): Promise<Session> {
-    const result = await query(
-      `INSERT INTO sessions (id, name, owner_id, streamer_wallet)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [data.id, data.name, data.owner_id, data.streamer_wallet],
-    )
-    return result.rows[0]
+    console.log("Creating session with data:", data)
+    const result = await sql`
+      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
+      VALUES (${data.id}, ${data.name}, ${data.owner_id}, ${data.streamer_wallet})
+      RETURNING *
+    `
+    console.log("Session created:", result[0])
+    return result[0]
   }
 
   // Get session by ID
   static async getById(id: string): Promise<Session | null> {
-    const result = await query("SELECT * FROM sessions WHERE id = $1 AND is_active = true", [id])
-    return result.rows[0] || null
+    const result = await sql`
+      SELECT * FROM sessions 
+      WHERE id = ${id} AND is_active = true
+    `
+    return result[0] || null
   }
 
   // Get sessions by owner
-  static async getByOwner(owner_id: string): Promise<Session[]> {
-    const result = await query("SELECT * FROM sessions WHERE owner_id = $1 ORDER BY created_at DESC", [owner_id])
-    return result.rows
+  static async getByOwner(owner_id: number): Promise<Session[]> {
+    console.log("Fetching sessions for owner_id:", owner_id)
+    const result = await sql`
+      SELECT * FROM sessions 
+      WHERE owner_id = ${owner_id} 
+      ORDER BY created_at DESC
+    `
+    console.log("Found sessions:", result.length)
+    return result
   }
 
   // Update session
   static async update(id: string, data: Partial<Session>): Promise<Session | null> {
-    const fields = Object.keys(data)
-      .map((key, index) => `${key} = $${index + 2}`)
-      .join(", ")
-    const values = Object.values(data)
+    // For updates, we'll handle each field individually to avoid SQL injection
+    const { name, canvas_data, is_active, total_earnings, viewer_count } = data
 
-    const result = await query(`UPDATE sessions SET ${fields} WHERE id = $1 RETURNING *`, [id, ...values])
-    return result.rows[0] || null
+    if (name !== undefined) {
+      const result = await sql`
+        UPDATE sessions 
+        SET name = ${name}, updated_at = NOW() 
+        WHERE id = ${id} 
+        RETURNING *
+      `
+      return result[0] || null
+    }
+
+    if (canvas_data !== undefined) {
+      const result = await sql`
+        UPDATE sessions 
+        SET canvas_data = ${canvas_data}, updated_at = NOW() 
+        WHERE id = ${id} 
+        RETURNING *
+      `
+      return result[0] || null
+    }
+
+    return null
   }
 
   // Delete session (soft delete)
   static async delete(id: string): Promise<boolean> {
-    const result = await query("UPDATE sessions SET is_active = false WHERE id = $1", [id])
-    return result.rowCount > 0
+    const result = await sql`
+      UPDATE sessions 
+      SET is_active = false 
+      WHERE id = ${id}
+    `
+    return result.length > 0
   }
 
   // Get session with stats
   static async getWithStats(id: string): Promise<(Session & SessionStats) | null> {
-    const result = await query(
-      `SELECT s.*, 
-              COALESCE(st.lines_drawn, 0) as lines_drawn,
-              COALESCE(st.nukes_used, 0) as nukes_used,
-              COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
-              COALESCE(st.unique_participants, 0) as unique_participants
-       FROM sessions s
-       LEFT JOIN session_stats st ON s.id = st.session_id
-       WHERE s.id = $1 AND s.is_active = true`,
-      [id],
-    )
-    return result.rows[0] || null
+    const result = await sql`
+      SELECT s.*, 
+             COALESCE(st.lines_drawn, 0) as lines_drawn,
+             COALESCE(st.nukes_used, 0) as nukes_used,
+             COALESCE(st.total_tokens_sold, 0) as total_tokens_sold,
+             COALESCE(st.unique_participants, 0) as unique_participants
+      FROM sessions s
+      LEFT JOIN session_stats st ON s.id = st.session_id
+      WHERE s.id = ${id} AND s.is_active = true
+    `
+    return result[0] || null
   }
 
   // Update canvas data
   static async updateCanvas(id: string, canvas_data: string): Promise<void> {
-    await query("UPDATE sessions SET canvas_data = $1, updated_at = NOW() WHERE id = $2", [canvas_data, id])
+    await sql`
+      UPDATE sessions 
+      SET canvas_data = ${canvas_data}, updated_at = NOW() 
+      WHERE id = ${id}
+    `
   }
 
   // Increment stats
   static async incrementStat(session_id: string, stat: "lines_drawn" | "nukes_used"): Promise<void> {
-    await query(
-      `INSERT INTO session_stats (session_id, ${stat})
-       VALUES ($1, 1)
-       ON CONFLICT (session_id)
-       DO UPDATE SET ${stat} = session_stats.${stat} + 1`,
-      [session_id],
-    )
+    if (stat === "lines_drawn") {
+      await sql`
+        INSERT INTO session_stats (session_id, lines_drawn)
+        VALUES (${session_id}, 1)
+        ON CONFLICT (session_id)
+        DO UPDATE SET lines_drawn = session_stats.lines_drawn + 1
+      `
+    } else if (stat === "nukes_used") {
+      await sql`
+        INSERT INTO session_stats (session_id, nukes_used)
+        VALUES (${session_id}, 1)
+        ON CONFLICT (session_id)
+        DO UPDATE SET nukes_used = session_stats.nukes_used + 1
+      `
+    }
   }
 }

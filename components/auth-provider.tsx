@@ -4,7 +4,7 @@ import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 
 interface User {
-  id: string
+  id: number
   username: string
   email: string
   wallet_address?: string
@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false)
   }, [])
 
-  const verifyUser = async (userId: string) => {
+  const verifyUser = async (userId: number) => {
     try {
       const response = await fetch(`/api/auth/profile?id=${userId}`)
       if (response.ok) {
@@ -61,6 +61,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const login = async (email: string, password: string) => {
+    console.log("Login attempt for:", email)
+
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: {
@@ -70,16 +72,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     const data = await response.json()
+    console.log("Login response:", { status: response.status, ok: response.ok })
 
     if (!response.ok) {
+      console.error("Login failed:", data)
       throw new Error(data.error || "Login failed")
     }
 
+    console.log("Login successful")
     setUser(data.user)
     localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
   }
 
   const register = async (username: string, email: string, password: string, walletAddress?: string) => {
+    console.log("Registration attempt for:", { username, email })
+
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: {
@@ -94,11 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     const data = await response.json()
+    console.log("Registration response:", { status: response.status, ok: response.ok, data })
 
     if (!response.ok) {
-      throw new Error(data.error || "Registration failed")
+      console.error("Registration failed:", data)
+      throw new Error(data.error || data.details || "Registration failed")
     }
 
+    console.log("Registration successful")
     setUser(data.user)
     localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
   }

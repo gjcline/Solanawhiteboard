@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { UserService } from "@/lib/services/users"
+import { sql } from "@/lib/database"
+import bcrypt from "bcryptjs"
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,48 +22,100 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 })
     }
 
-    // Check if email already exists - wrapped in try/catch to prevent failures
-    let emailExists = false
+    // FIRST: Check if users table exists and create it if it doesn't
     try {
-      console.log("Checking if email exists:", email)
-      emailExists = await UserService.emailExists(email)
-    } catch (error) {
-      console.error("Error checking email:", error)
+      console.log("Checking if users table exists...")
+      const tableExists = await sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'users'
+        )
+      `
+
+      if (!tableExists[0].exists) {
+        console.log("Users table doesn't exist, creating it...")
+        await sql`
+          CREATE TABLE users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) UNIQUE NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            wallet_address VARCHAR(255),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+        console.log("Users table created successfully")
+      } else {
+        console.log("Users table exists")
+
+        // Check if username column exists
+        const usernameColumnExists = await sql`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'users'
+            AND column_name = 'username'
+          )
+        `
+
+        if (!usernameColumnExists[0].exists) {
+          console.log("Username column missing, adding it...")
+          await sql`ALTER TABLE users ADD COLUMN username VARCHAR(255) UNIQUE`
+          console.log("Username column added")
+        }
+      }
+    } catch (tableError) {
+      console.error("Error with users table:", tableError)
+      return NextResponse.json({ error: "Database setup error" }, { status: 500 })
     }
 
-    if (emailExists) {
-      console.log("Email already exists")
-      return NextResponse.json({ error: "Email already registered" }, { status: 400 })
-    }
-
-    // Check if username already exists - wrapped in try/catch to prevent failures
-    let usernameExists = false
+    // Check if email already exists
+    console.log("Checking if email exists:", email)
     try {
-      console.log("Checking if username exists:", username)
-      usernameExists = await UserService.usernameExists(username)
-    } catch (error) {
-      console.error("Error checking username:", error)
+      const emailCheck = await sql`SELECT 1 FROM users WHERE email = ${email}`
+      if (emailCheck.length > 0) {
+        console.log("Email already exists")
+        return NextResponse.json({ error: "Email already registered" }, { status: 400 })
+      }
+    } catch (emailError) {
+      console.error("Error checking email:", emailError)
     }
 
-    if (usernameExists) {
-      console.log("Username already exists")
-      return NextResponse.json({ error: "Username already taken" }, { status: 400 })
+    // Check if username already exists
+    console.log("Checking if username exists:", username)
+    try {
+      const usernameCheck = await sql`SELECT 1 FROM users WHERE username = ${username}`
+      if (usernameCheck.length > 0) {
+        console.log("Username already exists")
+        return NextResponse.json({ error: "Username already taken" }, { status: 400 })
+      }
+    } catch (usernameError) {
+      console.error("Error checking username:", usernameError)
     }
 
-    // Create user
+    // Hash password
+    console.log("Hashing password...")
+    const saltRounds = 12
+    const password_hash = await bcrypt.hash(password, saltRounds)
+    console.log("Password hashed successfully")
+
+    // Create user using template literal syntax
     console.log("Creating user...")
-    const user = await UserService.create({
-      username,
-      email,
-      password,
-      wallet_address,
-    })
+    const result = await sql`
+      INSERT INTO users (username, email, password_hash, wallet_address)
+      VALUES (${username}, ${email}, ${password_hash}, ${wallet_address || null})
+      RETURNING id, username, email, wallet_address, created_at, updated_at
+    `
 
-    if (!user) {
+    if (!result || result.length === 0) {
       throw new Error("Failed to create user - no user returned from database")
     }
 
+    const user = result[0]
     console.log("User created successfully:", user.id)
+
     return NextResponse.json({ user }, { status: 201 })
   } catch (error) {
     console.error("Registration error:", error)

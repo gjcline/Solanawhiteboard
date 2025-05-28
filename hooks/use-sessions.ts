@@ -6,7 +6,7 @@ import { useAuth } from "@/components/auth-provider"
 interface Session {
   id: string
   name: string
-  owner_id: string
+  owner_id: number
   streamer_wallet: string
   is_active: boolean
   total_earnings: number
@@ -30,15 +30,19 @@ export function useSessions() {
 
     try {
       setLoading(true)
+      console.log("Fetching sessions for user:", user.id)
       const response = await fetch(`/api/sessions?owner_id=${user.id}`)
 
       if (!response.ok) {
-        throw new Error("Failed to fetch sessions")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to fetch sessions")
       }
 
       const data = await response.json()
+      console.log("Sessions fetched:", data.sessions)
       setSessions(data.sessions)
     } catch (err) {
+      console.error("Error fetching sessions:", err)
       setError(err instanceof Error ? err.message : "Unknown error")
     } finally {
       setLoading(false)
@@ -47,6 +51,8 @@ export function useSessions() {
 
   const createSession = async (name: string, streamerWallet: string) => {
     if (!user) throw new Error("User not authenticated")
+
+    console.log("Creating session:", { name, owner_id: user.id, streamer_wallet: streamerWallet })
 
     const response = await fetch("/api/sessions", {
       method: "POST",
@@ -61,10 +67,12 @@ export function useSessions() {
     })
 
     if (!response.ok) {
-      throw new Error("Failed to create session")
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to create session")
     }
 
     const data = await response.json()
+    console.log("Session created:", data.session)
     setSessions((prev) => [data.session, ...prev])
     return data.session
   }

@@ -2,46 +2,19 @@ import { sql } from "@/lib/database"
 
 export async function setupDatabase() {
   try {
-    console.log("🚀 Starting database setup in production...")
+    console.log("🚀 Starting database setup...")
 
-    // Test connection
+    // Test connection first
     const testResult = await sql`SELECT NOW() as now, current_database() as db_name`
     console.log("✅ Connected to database:", testResult[0])
 
-    // Check existing tables first
-    console.log("🔍 Checking existing tables...")
-    const existingTables = await sql`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `
-    console.log(
-      "Existing tables:",
-      existingTables.map((t) => t.table_name),
-    )
-
-    // Check if users table exists and its structure
-    try {
-      const userTableStructure = await sql`
-        SELECT column_name, data_type, is_nullable
-        FROM information_schema.columns 
-        WHERE table_name = 'users' AND table_schema = 'public'
-        ORDER BY ordinal_position
-      `
-      console.log("Users table structure:", userTableStructure)
-    } catch (error) {
-      console.log("Users table doesn't exist or error checking structure:", error)
-    }
-
-    // Drop existing tables if they exist (for clean setup)
-    console.log("🧹 Cleaning up existing tables...")
+    // COMPLETELY DROP AND RECREATE ALL TABLES
+    console.log("🧹 Dropping all existing tables...")
     await sql`DROP TABLE IF EXISTS user_tokens CASCADE`
     await sql`DROP TABLE IF EXISTS sessions CASCADE`
     await sql`DROP TABLE IF EXISTS users CASCADE`
 
-    // Create users table with correct structure
-    console.log("👥 Creating users table...")
+    console.log("👥 Creating USERS table...")
     await sql`
       CREATE TABLE users (
         id SERIAL PRIMARY KEY,
@@ -54,38 +27,41 @@ export async function setupDatabase() {
       )
     `
 
-    // Verify users table was created correctly
-    console.log("🔍 Verifying users table structure...")
-    const newUserTableStructure = await sql`
-      SELECT column_name, data_type, is_nullable
-      FROM information_schema.columns 
-      WHERE table_name = 'users' AND table_schema = 'public'
-      ORDER BY ordinal_position
-    `
-    console.log("New users table structure:", newUserTableStructure)
-
-    // Create sessions table
-    console.log("📋 Creating sessions table...")
+    console.log("📋 Creating SESSIONS table...")
     await sql`
       CREATE TABLE sessions (
-        id SERIAL PRIMARY KEY,
-        session_id VARCHAR(255) UNIQUE NOT NULL,
-        user_id INTEGER REFERENCES users(id),
+        id VARCHAR(255) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        canvas_data JSONB,
-        is_public BOOLEAN DEFAULT false,
+        owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        streamer_wallet VARCHAR(255),
+        is_active BOOLEAN DEFAULT true,
+        canvas_data TEXT,
+        total_earnings DECIMAL(10,2) DEFAULT 0,
+        viewer_count INTEGER DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `
 
-    // Create user_tokens table
-    console.log("🪙 Creating user_tokens table...")
+    console.log("📊 Creating SESSION_STATS table...")
+    await sql`
+      CREATE TABLE session_stats (
+        session_id VARCHAR(255) PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+        lines_drawn INTEGER DEFAULT 0,
+        nukes_used INTEGER DEFAULT 0,
+        total_tokens_sold INTEGER DEFAULT 0,
+        unique_participants INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `
+
+    console.log("🪙 Creating USER_TOKENS table...")
     await sql`
       CREATE TABLE user_tokens (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
-        session_id VARCHAR(255) REFERENCES sessions(session_id),
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        session_id VARCHAR(255) REFERENCES sessions(id) ON DELETE CASCADE,
         line_tokens INTEGER DEFAULT 0,
         nuke_tokens INTEGER DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -93,7 +69,63 @@ export async function setupDatabase() {
       )
     `
 
-    // Verify all tables were created
+    // VERIFY EACH TABLE WAS CREATED CORRECTLY
+    console.log("🔍 Verifying table creation...")
+
+    const usersColumns = await sql`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `
+    console.log("👥 USERS table columns:", usersColumns)
+
+    const sessionsColumns = await sql`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'sessions' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `
+    console.log("📋 SESSIONS table columns:", sessionsColumns)
+
+    const sessionStatsColumns = await sql`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'session_stats' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `
+    console.log("📊 SESSION_STATS table columns:", sessionStatsColumns)
+
+    const tokensColumns = await sql`
+      SELECT column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns 
+      WHERE table_name = 'user_tokens' AND table_schema = 'public'
+      ORDER BY ordinal_position
+    `
+    console.log("🪙 USER_TOKENS table columns:", tokensColumns)
+
+    // TEST INSERTING A USER AND SESSION
+    console.log("🧪 Testing user and session insertion...")
+    const testUser = await sql`
+      INSERT INTO users (username, email, password_hash)
+      VALUES ('testuser123', 'test123@example.com', 'hashedpassword123')
+      RETURNING id, username, email
+    `
+    console.log("✅ Test user created:", testUser[0])
+
+    const testSession = await sql`
+      INSERT INTO sessions (id, name, owner_id, streamer_wallet)
+      VALUES ('test123', 'Test Session', ${testUser[0].id}, 'test-wallet-address')
+      RETURNING id, name, owner_id
+    `
+    console.log("✅ Test session created:", testSession[0])
+
+    // CLEAN UP TEST DATA
+    await sql`DELETE FROM sessions WHERE id = 'test123'`
+    await sql`DELETE FROM users WHERE email = 'test123@example.com'`
+    console.log("🧹 Test data cleaned up")
+
+    // FINAL TABLE LIST
     const finalTables = await sql`
       SELECT table_name 
       FROM information_schema.tables 
@@ -101,30 +133,15 @@ export async function setupDatabase() {
       ORDER BY table_name
     `
 
-    console.log(
-      "🎉 Database setup complete! Tables created:",
-      finalTables.map((t) => t.table_name),
-    )
-
-    // Test inserting a user to make sure everything works
-    console.log("🧪 Testing user creation...")
-    const testUser = await sql`
-      INSERT INTO users (username, email, password_hash)
-      VALUES ('testuser', 'test@example.com', 'testhash')
-      RETURNING id, username, email
-    `
-    console.log("✅ Test user created:", testUser[0])
-
-    // Clean up test user
-    await sql`DELETE FROM users WHERE email = 'test@example.com'`
-    console.log("🧹 Test user cleaned up")
-
     return {
       success: true,
-      message: "Database setup completed successfully in production",
+      message: "Database setup completed successfully!",
       database: testResult[0].db_name,
       tables: finalTables.map((t) => t.table_name),
-      userTableStructure: newUserTableStructure,
+      usersColumns: usersColumns,
+      sessionsColumns: sessionsColumns,
+      sessionStatsColumns: sessionStatsColumns,
+      tokensColumns: tokensColumns,
       timestamp: testResult[0].now,
     }
   } catch (error) {
