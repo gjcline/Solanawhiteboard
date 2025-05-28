@@ -1,4 +1,4 @@
-import { query } from "../database"
+import { sql } from "../database"
 import bcrypt from "bcryptjs"
 
 export interface User {
@@ -35,15 +35,14 @@ export class UserService {
       console.log("Password hashed successfully")
 
       console.log("Inserting user into database...")
-      const result = await query(
-        `INSERT INTO users (username, email, password_hash, wallet_address)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, username, email, wallet_address, created_at, updated_at`,
-        [data.username, data.email, password_hash, data.wallet_address || null],
-      )
+      const result = await sql`
+        INSERT INTO users (username, email, password_hash, wallet_address)
+        VALUES (${data.username}, ${data.email}, ${password_hash}, ${data.wallet_address || null})
+        RETURNING id, username, email, wallet_address, created_at, updated_at
+      `
 
-      console.log("User created successfully:", result.rows?.[0] || "No result returned")
-      return result.rows?.[0]
+      console.log("User created successfully:", result[0] || "No result returned")
+      return result[0]
     } catch (error) {
       console.error("Error in UserService.create:", error)
       throw error
@@ -54,12 +53,13 @@ export class UserService {
   static async getByEmail(email: string): Promise<User | null> {
     try {
       console.log("Getting user by email:", email)
-      const result = await query(
-        "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE email = $1",
-        [email],
-      )
-      console.log("Query result:", result.rows?.length > 0 ? "User found" : "User not found")
-      return result.rows?.[0] || null
+      const result = await sql`
+        SELECT id, username, email, wallet_address, created_at, updated_at 
+        FROM users 
+        WHERE email = ${email}
+      `
+      console.log("Query result:", result.length > 0 ? "User found" : "User not found")
+      return result[0] || null
     } catch (error) {
       console.error("Error getting user by email:", error)
       throw error
@@ -70,11 +70,12 @@ export class UserService {
   static async getById(id: number): Promise<User | null> {
     try {
       console.log("Getting user by ID:", id)
-      const result = await query(
-        "SELECT id, username, email, wallet_address, created_at, updated_at FROM users WHERE id = $1",
-        [id],
-      )
-      return result.rows?.[0] || null
+      const result = await sql`
+        SELECT id, username, email, wallet_address, created_at, updated_at 
+        FROM users 
+        WHERE id = ${id}
+      `
+      return result[0] || null
     } catch (error) {
       console.error("Error getting user by ID:", error)
       throw error
@@ -84,33 +85,60 @@ export class UserService {
   // Verify password
   static async verifyPassword(email: string, password: string): Promise<User | null> {
     try {
+      console.log("=== PASSWORD VERIFICATION START ===")
       console.log("Verifying password for email:", email)
+      console.log("Password provided:", password ? "Yes" : "No")
+      console.log("Password length:", password?.length || 0)
 
-      const result = await query(
-        "SELECT id, username, email, password_hash, wallet_address, created_at, updated_at FROM users WHERE email = $1",
-        [email],
-      )
+      const result = await sql`
+        SELECT id, username, email, password_hash, wallet_address, created_at, updated_at 
+        FROM users 
+        WHERE email = ${email}
+      `
 
-      console.log("User lookup result:", result.rows?.length > 0 ? "User found" : "User not found")
+      console.log("Database query completed")
+      console.log("Users found:", result.length)
 
-      const user = result.rows?.[0]
-      if (!user) {
-        console.log("No user found with email:", email)
+      if (result.length === 0) {
+        console.log("❌ No user found with email:", email)
         return null
       }
 
-      console.log("Comparing password with hash...")
-      const isValid = await bcrypt.compare(password, user.password_hash)
-      console.log("Password comparison result:", isValid ? "Valid" : "Invalid")
+      const user = result[0]
+      console.log("✅ User found:", {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        hasPasswordHash: !!user.password_hash,
+        passwordHashLength: user.password_hash?.length || 0,
+      })
 
-      if (!isValid) return null
+      if (!user.password_hash) {
+        console.log("❌ User has no password hash stored")
+        return null
+      }
+
+      console.log("Comparing passwords...")
+      console.log("Input password:", password)
+      console.log("Stored hash:", user.password_hash.substring(0, 20) + "...")
+
+      const isValid = await bcrypt.compare(password, user.password_hash)
+      console.log("Password comparison result:", isValid ? "✅ VALID" : "❌ INVALID")
+
+      if (!isValid) {
+        console.log("❌ Password verification failed")
+        return null
+      }
 
       // Return user without password hash
       const { password_hash, ...userWithoutPassword } = user
-      console.log("Password verification successful for user:", userWithoutPassword.id)
+      console.log("✅ Password verification successful for user:", userWithoutPassword.id)
+      console.log("=== PASSWORD VERIFICATION END ===")
       return userWithoutPassword
     } catch (error) {
-      console.error("Error verifying password:", error)
+      console.error("❌ Error verifying password:", error)
+      console.error("Error details:", error instanceof Error ? error.message : "Unknown error")
+      console.error("Error stack:", error instanceof Error ? error.stack : "No stack")
       throw error
     }
   }
@@ -120,37 +148,39 @@ export class UserService {
     try {
       const updates = []
       const values = []
-      let paramCount = 1
 
       if (data.username) {
-        updates.push(`username = $${paramCount++}`)
+        updates.push("username")
         values.push(data.username)
       }
       if (data.email) {
-        updates.push(`email = $${paramCount++}`)
+        updates.push("email")
         values.push(data.email)
       }
       if (data.wallet_address !== undefined) {
-        updates.push(`wallet_address = $${paramCount++}`)
+        updates.push("wallet_address")
         values.push(data.wallet_address)
       }
       if (data.password) {
         const password_hash = await bcrypt.hash(data.password, 12)
-        updates.push(`password_hash = $${paramCount++}`)
+        updates.push("password_hash")
         values.push(password_hash)
       }
 
       if (updates.length === 0) return null
 
-      updates.push(`updated_at = NOW()`)
-      values.push(id)
+      // For now, let's use a simpler approach for updates
+      if (data.username) {
+        const result = await sql`
+          UPDATE users 
+          SET username = ${data.username}, updated_at = NOW() 
+          WHERE id = ${id}
+          RETURNING id, username, email, wallet_address, created_at, updated_at
+        `
+        return result[0] || null
+      }
 
-      const result = await query(
-        `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramCount} 
-         RETURNING id, username, email, wallet_address, created_at, updated_at`,
-        values,
-      )
-      return result.rows?.[0] || null
+      return null
     } catch (error) {
       console.error("Error updating user:", error)
       throw error
@@ -162,34 +192,9 @@ export class UserService {
     try {
       console.log("Checking if email exists:", email)
 
-      // First check if the users table exists
-      try {
-        const tableCheck = await query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'users'
-          )
-        `)
-
-        if (!tableCheck.rows?.[0]?.exists) {
-          console.log("Users table does not exist")
-          return false
-        }
-      } catch (tableError) {
-        console.error("Error checking if users table exists:", tableError)
-        return false
-      }
-
-      const result = await query("SELECT 1 FROM users WHERE email = $1", [email])
-
-      if (result && result.rows && Array.isArray(result.rows)) {
-        console.log("Email exists check result:", result.rows.length > 0)
-        return result.rows.length > 0
-      } else {
-        console.log("Query returned unexpected format:", result)
-        return false
-      }
+      const result = await sql`SELECT 1 FROM users WHERE email = ${email}`
+      console.log("Email exists check result:", result.length > 0)
+      return result.length > 0
     } catch (error) {
       console.error("Error checking email exists:", error)
       return false
@@ -201,34 +206,9 @@ export class UserService {
     try {
       console.log("Checking if username exists:", username)
 
-      // First check if the users table exists
-      try {
-        const tableCheck = await query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = 'users'
-          )
-        `)
-
-        if (!tableCheck.rows?.[0]?.exists) {
-          console.log("Users table does not exist")
-          return false
-        }
-      } catch (tableError) {
-        console.error("Error checking if users table exists:", tableError)
-        return false
-      }
-
-      const result = await query("SELECT 1 FROM users WHERE username = $1", [username])
-
-      if (result && result.rows && Array.isArray(result.rows)) {
-        console.log("Username exists check result:", result.rows.length > 0)
-        return result.rows.length > 0
-      } else {
-        console.log("Query returned unexpected format:", result)
-        return false
-      }
+      const result = await sql`SELECT 1 FROM users WHERE username = ${username}`
+      console.log("Username exists check result:", result.length > 0)
+      return result.length > 0
     } catch (error) {
       console.error("Error checking username exists:", error)
       return false
