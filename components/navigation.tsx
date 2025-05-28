@@ -58,7 +58,7 @@ export default function Navigation() {
               <DropdownMenuContent align="end" className="bg-gray-900 border-gray-800">
                 <DropdownMenuItem onClick={logout} className="text-gray-300 hover:text-white hover:bg-gray-800">
                   <LogOut className="h-4 w-4 mr-2" />
-                  disconnect
+                  logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
