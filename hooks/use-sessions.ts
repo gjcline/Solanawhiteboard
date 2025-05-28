@@ -17,6 +17,7 @@ interface Session {
   nukes_used: number
   total_tokens_sold: number
   unique_participants: number
+  active_viewers: number
 }
 
 export function useSessions() {
@@ -77,6 +78,31 @@ export function useSessions() {
     return data.session
   }
 
+  const updateSession = async (sessionId: string, updates: Partial<Session>) => {
+    console.log("Updating session:", sessionId, updates)
+
+    const response = await fetch(`/api/sessions/${sessionId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updates),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to update session")
+    }
+
+    const data = await response.json()
+    console.log("Session updated:", data.session)
+
+    // Update the session in our local state
+    setSessions((prev) => prev.map((session) => (session.id === sessionId ? { ...session, ...data.session } : session)))
+
+    return data.session
+  }
+
   const deleteSession = async (sessionId: string) => {
     const response = await fetch(`/api/sessions/${sessionId}`, {
       method: "DELETE",
@@ -98,6 +124,7 @@ export function useSessions() {
     loading,
     error,
     createSession,
+    updateSession,
     deleteSession,
     refetch: fetchSessions,
   }

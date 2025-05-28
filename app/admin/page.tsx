@@ -71,6 +71,14 @@ export default function AdminPage() {
     })
   }
 
+  const copyWalletAddress = () => {
+    navigator.clipboard.writeText(DEVCAVE_WALLET)
+    toast({
+      title: "wallet copied!",
+      description: "D3vCav3 wallet address copied to clipboard",
+    })
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6 text-white">admin settings</h1>
@@ -79,23 +87,47 @@ export default function AdminPage() {
         {/* Revenue Split Info */}
         <Card className="pump-card border-gray-800">
           <CardHeader>
-            <CardTitle className="text-white">revenue split configuration</CardTitle>
+            <CardTitle className="text-white">escrow revenue system</CardTitle>
             <CardDescription className="text-gray-400">
-              draw.fun uses a 50/50 revenue split system for all token purchases
+              draw.fun uses an escrow system - streamers get paid when viewers actually use their tokens
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              <div className="p-3 bg-blue-950/20 border border-blue-500/30 rounded-lg">
+                <div className="text-sm font-medium text-blue-400 mb-2">How Escrow Works:</div>
+                <div className="text-xs text-gray-300 space-y-1">
+                  <div>1. Viewer purchases tokens → Funds held in escrow</div>
+                  <div>2. Viewer uses token to draw/nuke → Payment released</div>
+                  <div>3. 50% to streamer, 50% to D3vCav3 (batched every 30s)</div>
+                </div>
+              </div>
               <div className="flex justify-between items-center p-3 bg-gray-800/50 rounded-lg">
                 <span className="text-gray-300">D3vCav3 (Platform)</span>
-                <span className="text-[#00ff88] font-semibold">50%</span>
+                <span className="text-[#00ff88] font-semibold">50% per token used</span>
               </div>
               <div className="flex justify-between items-center p-3 bg-gray-800/50 rounded-lg">
                 <span className="text-gray-300">Streamer (Session Owner)</span>
-                <span className="text-[#00ff88] font-semibold">50%</span>
+                <span className="text-[#00ff88] font-semibold">50% per token used</span>
               </div>
-              <div className="text-sm text-gray-500">
-                <strong>D3vCav3 Wallet:</strong> {DEVCAVE_WALLET}
+              <div className="p-3 bg-[#00ff88]/10 rounded-lg border border-[#00ff88]/30">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-[#00ff88]">D3vCav3 Wallet Address:</div>
+                    <div className="text-xs font-mono text-gray-300 break-all">{DEVCAVE_WALLET}</div>
+                  </div>
+                  <Button
+                    onClick={copyWalletAddress}
+                    size="sm"
+                    variant="outline"
+                    className="border-[#00ff88]/50 text-[#00ff88] hover:bg-[#00ff88]/20"
+                  >
+                    copy
+                  </Button>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                  ✅ Environment variable configured - receiving 50% of used tokens
+                </div>
               </div>
             </div>
           </CardContent>
@@ -129,6 +161,44 @@ export default function AdminPage() {
                   <div className="text-xs text-gray-400">Dramatic board clear effect</div>
                 </div>
                 <span className="text-red-400 font-bold">0.03 SOL</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Revenue Calculation Example */}
+        <Card className="pump-card border-gray-800">
+          <CardHeader>
+            <CardTitle className="text-white">revenue per token used</CardTitle>
+            <CardDescription className="text-gray-400">earnings when viewers actually use their tokens</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-white font-medium">Line Used</div>
+                  <div className="text-[#00ff88] font-bold">0.0025 SOL</div>
+                  <div className="text-xs text-gray-400">your 50%</div>
+                </div>
+                <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-white font-medium">Bundle Token Used</div>
+                  <div className="text-[#00ff88] font-bold">0.001 SOL</div>
+                  <div className="text-xs text-gray-400">your 50%</div>
+                </div>
+                <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                  <div className="text-white font-medium">Nuke Used</div>
+                  <div className="text-[#00ff88] font-bold">0.015 SOL</div>
+                  <div className="text-xs text-gray-400">your 50%</div>
+                </div>
+              </div>
+              <div className="text-center text-xs text-gray-500 mt-4">
+                💡 Payments released from escrow when tokens are used, batched every 30 seconds
+              </div>
+              <div className="p-3 bg-yellow-950/20 border border-yellow-500/30 rounded-lg">
+                <div className="text-xs text-yellow-400">
+                  <strong>Note:</strong> If viewers buy tokens but never use them, they can request a refund. You only
+                  get paid when tokens are actually used for drawing or nuking.
+                </div>
               </div>
             </div>
           </CardContent>

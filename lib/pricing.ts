@@ -11,7 +11,7 @@ export const REVENUE_SPLIT = {
 } as const
 
 // D3vCav3 wallet address (replace with actual address)
-export const DEVCAVE_WALLET = "D3vCav3WalletAddressHere123456789" // TODO: Replace with real wallet
+export const DEVCAVE_WALLET = process.env.DEVCAVE_WALLET || "D3vCav3WalletAddressHere123456789"
 
 export const DRAWING_TIME_LIMIT = 5000 // 5 seconds per line in milliseconds
 

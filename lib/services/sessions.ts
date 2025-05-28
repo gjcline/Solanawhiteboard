@@ -61,30 +61,67 @@ export class SessionService {
 
   // Update session
   static async update(id: string, data: Partial<Session>): Promise<Session | null> {
-    // For updates, we'll handle each field individually to avoid SQL injection
-    const { name, canvas_data, is_active, total_earnings, viewer_count } = data
+    console.log("Updating session:", id, "with data:", data)
 
-    if (name !== undefined) {
-      const result = await sql`
-        UPDATE sessions 
-        SET name = ${name}, updated_at = NOW() 
-        WHERE id = ${id} 
-        RETURNING *
-      `
-      return result[0] || null
+    try {
+      // Handle different update fields
+      if (data.name !== undefined) {
+        const result = await sql`
+          UPDATE sessions 
+          SET name = ${data.name}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        return result[0] || null
+      }
+
+      if (data.streamer_wallet !== undefined) {
+        console.log("Updating streamer wallet for session:", id, "to:", data.streamer_wallet)
+        const result = await sql`
+          UPDATE sessions 
+          SET streamer_wallet = ${data.streamer_wallet}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        console.log("Wallet update result:", result[0] || "No result")
+        return result[0] || null
+      }
+
+      if (data.canvas_data !== undefined) {
+        const result = await sql`
+          UPDATE sessions 
+          SET canvas_data = ${data.canvas_data}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        return result[0] || null
+      }
+
+      if (data.total_earnings !== undefined) {
+        const result = await sql`
+          UPDATE sessions 
+          SET total_earnings = ${data.total_earnings}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        return result[0] || null
+      }
+
+      if (data.viewer_count !== undefined) {
+        const result = await sql`
+          UPDATE sessions 
+          SET viewer_count = ${data.viewer_count}, updated_at = NOW() 
+          WHERE id = ${id} 
+          RETURNING *
+        `
+        return result[0] || null
+      }
+
+      return null
+    } catch (error) {
+      console.error("Error updating session:", error)
+      throw error
     }
-
-    if (canvas_data !== undefined) {
-      const result = await sql`
-        UPDATE sessions 
-        SET canvas_data = ${canvas_data}, updated_at = NOW() 
-        WHERE id = ${id} 
-        RETURNING *
-      `
-      return result[0] || null
-    }
-
-    return null
   }
 
   // Delete session (soft delete)

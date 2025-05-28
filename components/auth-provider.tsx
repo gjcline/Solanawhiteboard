@@ -1,67 +1,52 @@
 "use client"
 
-import type React from "react"
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useState, useEffect, type ReactNode, useContext } from "react"
 
 interface User {
-  id: number
+  id: number // Change to number to match database
   username: string
   email: string
   wallet_address?: string
-  created_at: string
-  updated_at: string
+  created_at?: string
+  updated_at?: string
 }
 
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<void>
-  register: (username: string, email: string, password: string, walletAddress?: string) => Promise<void>
+  register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
-  updateProfile: (data: Partial<User>) => Promise<void>
-  isLoading: boolean
+  updateProfile: (updateData: Partial<User>) => Promise<User>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+interface AuthProviderProps {
+  children: ReactNode
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Check if user is logged in on mount
-    const savedUser = localStorage.getItem("whiteboard-user")
-    if (savedUser) {
+    const storedUser = localStorage.getItem("whiteboard-user")
+    if (storedUser) {
       try {
-        const userData = JSON.parse(savedUser)
-        setUser(userData)
-        // Optionally verify the user still exists in the database
-        verifyUser(userData.id)
+        const parsedUser = JSON.parse(storedUser)
+        // Ensure id is a number
+        if (parsedUser.id) {
+          parsedUser.id = Number.parseInt(parsedUser.id, 10)
+        }
+        setUser(parsedUser)
       } catch (error) {
-        console.error("Error parsing saved user:", error)
+        console.error("Error parsing stored user:", error)
         localStorage.removeItem("whiteboard-user")
       }
     }
-    setIsLoading(false)
   }, [])
 
-  const verifyUser = async (userId: number) => {
-    try {
-      const response = await fetch(`/api/auth/profile?id=${userId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setUser(data.user)
-        localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
-      } else {
-        // User no longer exists, clear local storage
-        logout()
-      }
-    } catch (error) {
-      console.error("Error verifying user:", error)
-    }
-  }
-
   const login = async (email: string, password: string) => {
-    console.log("Login attempt for:", email)
+    console.log("🔐 Attempting login for:", email)
 
     const response = await fetch("/api/auth/login", {
       method: "POST",
@@ -72,65 +57,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     const data = await response.json()
-    console.log("Login response:", { status: response.status, ok: response.ok })
 
     if (!response.ok) {
-      console.error("Login failed:", data)
       throw new Error(data.error || "Login failed")
     }
 
-    console.log("Login successful")
+    console.log("✅ Login successful:", data.user)
+
+    // Ensure id is a number
+    if (data.user.id) {
+      data.user.id = Number.parseInt(data.user.id, 10)
+    }
+
     setUser(data.user)
     localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
   }
 
-  const register = async (username: string, email: string, password: string, walletAddress?: string) => {
-    console.log("Registration attempt for:", { username, email })
+  const register = async (username: string, email: string, password: string) => {
+    console.log("📝 Attempting registration for:", email)
 
     const response = await fetch("/api/auth/register", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        username,
-        email,
-        password,
-        wallet_address: walletAddress,
-      }),
+      body: JSON.stringify({ username, email, password }),
     })
 
     const data = await response.json()
-    console.log("Registration response:", { status: response.status, ok: response.ok, data })
 
     if (!response.ok) {
-      console.error("Registration failed:", data)
-      throw new Error(data.error || data.details || "Registration failed")
+      throw new Error(data.error || "Registration failed")
     }
 
-    console.log("Registration successful")
-    setUser(data.user)
-    localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
-  }
+    console.log("✅ Registration successful:", data.user)
 
-  const updateProfile = async (updateData: Partial<User>) => {
-    if (!user) throw new Error("No user logged in")
-
-    const response = await fetch("/api/auth/profile", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: user.id,
-        ...updateData,
-      }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || "Profile update failed")
+    // Ensure id is a number
+    if (data.user.id) {
+      data.user.id = Number.parseInt(data.user.id, 10)
     }
 
     setUser(data.user)
@@ -142,25 +106,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("whiteboard-user")
   }
 
+  const updateProfile = async (updateData: Partial<User>) => {
+    if (!user) throw new Error("No user logged in")
+
+    console.log("Updating user profile:", updateData)
+
+    try {
+      const response = await fetch("/api/auth/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: user.id,
+          ...updateData,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error("Profile update failed:", data)
+        throw new Error(data.error || "Profile update failed")
+      }
+
+      console.log("Profile updated successfully:", data.user)
+
+      // Ensure id is a number
+      if (data.user.id) {
+        data.user.id = Number.parseInt(data.user.id, 10)
+      }
+
+      // Update the user state with the new data
+      setUser(data.user)
+      localStorage.setItem("whiteboard-user", JSON.stringify(data.user))
+
+      return data.user
+    } catch (error) {
+      console.error("Profile update error:", error)
+      throw error
+    }
+  }
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        register,
-        logout,
-        updateProfile,
-        isLoading,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={{ user, login, register, logout, updateProfile }}>{children}</AuthContext.Provider>
   )
 }
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext)
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider")
   }
   return context

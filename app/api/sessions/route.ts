@@ -10,7 +10,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Owner ID required" }, { status: 400 })
     }
 
-    console.log("Fetching sessions for owner_id:", owner_id)
+    // Validate that owner_id is a valid number
+    const ownerIdNum = Number.parseInt(owner_id, 10)
+    if (isNaN(ownerIdNum)) {
+      console.error("Invalid owner_id provided:", owner_id)
+      return NextResponse.json({ error: "Invalid owner ID format" }, { status: 400 })
+    }
+
+    console.log("Fetching sessions for owner_id:", ownerIdNum)
 
     // First, check if the sessions table exists and has the right structure
     try {
@@ -32,6 +39,15 @@ export async function GET(request: NextRequest) {
         await sql`ALTER TABLE sessions ADD COLUMN owner_id INTEGER REFERENCES users(id)`
         console.log("owner_id column added successfully")
       }
+
+      // Check if streamer_wallet column exists
+      const hasStreamerWalletColumn = tableCheck.some((col) => col.column_name === "streamer_wallet")
+
+      if (!hasStreamerWalletColumn) {
+        console.log("Adding missing streamer_wallet column...")
+        await sql`ALTER TABLE sessions ADD COLUMN streamer_wallet VARCHAR(255)`
+        console.log("streamer_wallet column added successfully")
+      }
     } catch (error) {
       console.error("Error checking/fixing sessions table:", error)
       return NextResponse.json({ error: "Database table issue" }, { status: 500 })
@@ -40,7 +56,7 @@ export async function GET(request: NextRequest) {
     // Now try to fetch sessions
     const sessions = await sql`
       SELECT * FROM sessions 
-      WHERE owner_id = ${Number.parseInt(owner_id)} 
+      WHERE owner_id = ${ownerIdNum} 
       ORDER BY created_at DESC
     `
 
@@ -67,14 +83,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
+    // Validate owner_id is a number
+    const ownerIdNum = Number.parseInt(owner_id, 10)
+    if (isNaN(ownerIdNum)) {
+      console.error("Invalid owner_id provided:", owner_id)
+      return NextResponse.json({ error: "Invalid owner ID format" }, { status: 400 })
+    }
+
     // Generate session ID
     const id = Math.random().toString(36).substring(2, 14)
 
-    console.log("Creating session:", { id, name, owner_id, streamer_wallet })
+    console.log("Creating session:", { id, name, owner_id: ownerIdNum, streamer_wallet })
 
     const session = await sql`
       INSERT INTO sessions (id, name, owner_id, streamer_wallet)
-      VALUES (${id}, ${name}, ${Number.parseInt(owner_id)}, ${streamer_wallet})
+      VALUES (${id}, ${name}, ${ownerIdNum}, ${streamer_wallet})
       RETURNING *
     `
 

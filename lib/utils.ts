@@ -1,60 +1,32 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { cookies } from "next/headers"
+import { jwtVerify } from "jose"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Session management utility
-export function getSession(): string | null {
-  if (typeof window === "undefined") {
+export async function getSession() {
+  try {
+    const cookieStore = await cookies()
+    const token = cookieStore.get("auth-token")?.value
+
+    if (!token) {
+      return null
+    }
+
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key")
+
+    const { payload } = await jwtVerify(token, secret)
+
+    return {
+      id: payload.userId as number,
+      username: payload.username as string,
+      wallet_address: payload.wallet_address as string | null,
+    }
+  } catch (error) {
+    console.error("Error verifying session:", error)
     return null
   }
-
-  try {
-    return localStorage.getItem("session") || null
-  } catch (error) {
-    console.error("Error getting session:", error)
-    return null
-  }
-}
-
-export function setSession(sessionId: string): void {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  try {
-    localStorage.setItem("session", sessionId)
-  } catch (error) {
-    console.error("Error setting session:", error)
-  }
-}
-
-export function clearSession(): void {
-  if (typeof window === "undefined") {
-    return
-  }
-
-  try {
-    localStorage.removeItem("session")
-  } catch (error) {
-    console.error("Error clearing session:", error)
-  }
-}
-
-// Generate random session ID
-export function generateSessionId(): string {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
-}
-
-// Format date utility
-export function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date)
 }

@@ -33,15 +33,16 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
     if (!sessionId || !walletAddress) return false
 
     try {
-      const response = await fetch(`/api/tokens/${sessionId}`, {
+      // Use the escrow API endpoint instead of direct token usage
+      const response = await fetch(`/api/escrow/use-token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_wallet: walletAddress,
-          action: "use",
-          token_type: tokenType,
+          sessionId,
+          userWallet: walletAddress,
+          tokenType,
         }),
       })
 
@@ -57,31 +58,45 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
     }
   }
 
-  const addTokens = async (lineTokens = 0, nukeTokens = 0) => {
+  const addTokens = async (tokenType: string, quantity: number) => {
     if (!sessionId || !walletAddress) return false
 
     try {
-      const response = await fetch(`/api/tokens/${sessionId}`, {
+      // Calculate total amount based on token type and quantity
+      let totalAmount = 0
+      if (tokenType === "single") {
+        totalAmount = 0.005 * quantity
+      } else if (tokenType === "bundle") {
+        totalAmount = 0.02 // Bundle is fixed price for 10 tokens
+        quantity = 10 // Ensure quantity is 10 for bundles
+      } else if (tokenType === "nuke") {
+        totalAmount = 0.03 * quantity
+      }
+
+      // Create escrow purchase
+      const response = await fetch(`/api/escrow/purchase`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_wallet: walletAddress,
-          action: "add",
-          line_tokens: lineTokens,
-          nuke_tokens: nukeTokens,
+          sessionId,
+          userWallet: walletAddress,
+          tokenType,
+          quantity,
+          totalAmount,
         }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        setTokens(data.tokens)
+        // Refresh tokens to get updated balance
+        await fetchTokens()
         return true
       }
       return false
     } catch (error) {
-      console.error("Error adding tokens:", error)
+      console.error("Error purchasing tokens:", error)
       return false
     }
   }

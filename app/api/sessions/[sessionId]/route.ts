@@ -16,6 +16,25 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
   }
 }
 
+export async function PUT(request: NextRequest, { params }: { params: { sessionId: string } }) {
+  try {
+    const updates = await request.json()
+    console.log("Updating session:", params.sessionId, "with:", updates)
+
+    const session = await SessionService.update(params.sessionId, updates)
+
+    if (!session) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 })
+    }
+
+    console.log("Session updated successfully:", session)
+    return NextResponse.json({ session })
+  } catch (error) {
+    console.error("Error updating session:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 export async function DELETE(request: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
     const success = await SessionService.delete(params.sessionId)
