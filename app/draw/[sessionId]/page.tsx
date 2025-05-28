@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -27,17 +27,9 @@ export default function DrawPage() {
   const [sessionExists, setSessionExists] = useState(false)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [walletBalance, setWalletBalance] = useState(0)
-  // const [userTokens, setUserTokens] = useState<UserTokens>({ lines: 0, nukes: 0 })
   const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
-
-  // const useTokenCallback = useCallback(
-  //   (tokenType: "line" | "nuke") => {
-  //     useToken(tokenType)
-  //   },
-  //   [useToken],
-  // )
 
   // Validate session exists
   useEffect(() => {
@@ -46,21 +38,25 @@ export default function DrawPage() {
     const validateSession = async () => {
       console.log("Validating session:", sessionId)
 
-      // Check if session exists via API call instead of server-only function
+      // Check if session exists via API call
       try {
         const response = await fetch(`/api/sessions/${sessionId}`)
         if (response.ok) {
-          setSessionExists(true)
-          setIsLoading(false)
-          return
+          const data = await response.json()
+          // Only accept sessions that have a valid streamer wallet
+          if (data.session && data.session.streamer_wallet) {
+            setSessionExists(true)
+            setIsLoading(false)
+            return
+          }
         }
       } catch (error) {
         console.log("Session API check failed:", error)
       }
 
-      // Check if session exists in any user's sessions or has a wallet configured
+      // Check if session exists in localStorage (legacy support)
       const sessionWallet = localStorage.getItem(`session-wallet-${sessionId}`)
-      if (sessionWallet) {
+      if (sessionWallet && sessionWallet !== "DemoWallet123456789") {
         setSessionExists(true)
         setIsLoading(false)
         return
@@ -93,16 +89,13 @@ export default function DrawPage() {
         }
       }
 
-      // Fallback to default wallet or create demo session
+      // NO MORE FALLBACK TO DEMO WALLET
+      // Sessions must have a valid wallet configured
       if (!sessionFound) {
-        const defaultWallet = localStorage.getItem("whiteboard-recipient-wallet") || "DemoWallet123456789"
-        localStorage.setItem(`session-wallet-${sessionId}`, defaultWallet)
-        sessionFound = true
-
-        toast({
-          title: "demo session",
-          description: "this is a demo session. tokens purchased here are for testing only.",
-        })
+        console.log("Session not found or has no valid wallet")
+        setSessionExists(false)
+        setIsLoading(false)
+        return
       }
 
       setSessionExists(sessionFound)
@@ -151,21 +144,27 @@ export default function DrawPage() {
 
     toast({
       title: "tokens added!",
-      description: `${quantity} ${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
+      description: `${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
     })
   }
 
   const handleTokenUsed = (tokenType: "line" | "nuke") => {
     setTokenTypeUsed(tokenType)
-    useToken(tokenType)
   }
 
-  // useEffect(() => {
-  //   if (tokenTypeUsed) {
-  //     useTokenCallback(tokenTypeUsed)
-  //     setTokenTypeUsed(null)
-  //   }
-  // }, [tokenTypeUsed, useTokenCallback])
+  const useTheToken = useCallback(
+    (tokenType: "line" | "nuke") => {
+      useToken(tokenType)
+    },
+    [useToken],
+  )
+
+  useEffect(() => {
+    if (tokenTypeUsed) {
+      useTheToken(tokenTypeUsed)
+      setTokenTypeUsed(null)
+    }
+  }, [tokenTypeUsed, useTheToken])
 
   if (isLoading) {
     return (
@@ -185,11 +184,14 @@ export default function DrawPage() {
         <p className="text-gray-400 mb-6">
           session ID: <span className="font-mono">{sessionId}</span>
         </p>
-        <p className="text-gray-400 mb-6">this drawing session doesn't exist or has been deleted.</p>
+        <p className="text-gray-400 mb-6">
+          this drawing session doesn't exist, has been deleted, or doesn't have a valid receiving wallet configured.
+        </p>
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            make sure you have the correct session ID from the streamer. session IDs are case-sensitive.
+            make sure you have the correct session ID from the streamer. sessions require a valid wallet address to
+            accept payments.
           </AlertDescription>
         </Alert>
       </div>

@@ -24,11 +24,13 @@ import {
   Check,
   X,
   RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import DrawingBackground from "@/components/drawing-background"
 import { useSessions } from "@/hooks/use-sessions"
 import WalletAddressInput from "@/components/wallet-address-input"
 import { isValidSolanaAddress, formatWalletAddress } from "@/lib/wallet-utils"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function DashboardPage() {
   const { user, updateProfile } = useAuth()
@@ -68,7 +70,7 @@ export default function DashboardPage() {
     if (!newSessionWallet || !isValidSolanaAddress(newSessionWallet)) {
       toast({
         title: "valid wallet address required",
-        description: "enter a valid Solana wallet address for this session.",
+        description: "you must provide a valid Solana wallet address to receive payments. this cannot be empty.",
         variant: "destructive",
       })
       return
@@ -291,6 +293,14 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <Alert className="bg-yellow-950/20 border-yellow-500/30">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-yellow-400">
+                <strong>Important:</strong> You must provide your own Solana wallet address to receive 50% of token
+                sales. Sessions cannot be created without a valid receiving wallet.
+              </AlertDescription>
+            </Alert>
+
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="text-sm font-medium text-gray-300 mb-2 block">session name</label>
@@ -302,12 +312,14 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-300 mb-2 block">receiving wallet</label>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">
+                  your receiving wallet <span className="text-red-400">*</span>
+                </label>
                 <div className="flex gap-2">
                   <WalletAddressInput
                     value={newSessionWallet}
                     onChange={setNewSessionWallet}
-                    placeholder="wallet address for this session"
+                    placeholder="your solana wallet address (required)"
                     className="flex-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
                   />
                   {defaultWalletAddress && defaultWalletAddress !== newSessionWallet && (
@@ -328,6 +340,9 @@ export default function DashboardPage() {
                     Default: {formatWalletAddress(defaultWalletAddress, 6, 6)}
                   </p>
                 )}
+                <p className="text-xs text-red-400 mt-1">
+                  Required: This wallet will receive 50% of all token purchases
+                </p>
               </div>
             </div>
             <Button
@@ -340,6 +355,8 @@ export default function DashboardPage() {
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   creating...
                 </>
+              ) : !isValidSolanaAddress(newSessionWallet) ? (
+                "enter valid wallet address"
               ) : (
                 <>
                   <Plus className="h-4 w-4 mr-2" />
