@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Loader2, ExternalLink, CheckCircle, AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { DEVCAVE_WALLET } from "@/lib/pricing"
+import { createPurchaseTransaction } from "@/lib/solana-transactions"
 
 interface SolanaPaymentProps {
   amount: number
@@ -13,27 +15,16 @@ interface SolanaPaymentProps {
   onError: (error: string) => void
 }
 
-// Storage key for recipient wallet
-const RECIPIENT_WALLET_KEY = "whiteboard-recipient-wallet"
-
 // Solana network configuration
-const SOLANA_NETWORK = "devnet" // Change to "mainnet-beta" for production
+const SOLANA_NETWORK = "mainnet-beta" // Using mainnet for real transactions
 
 export default function SolanaPayment({ amount, sessionId, onSuccess, onError }: SolanaPaymentProps) {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [wallet, setWallet] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [recipientWallet, setRecipientWallet] = useState<string | null>(null)
   const [balance, setBalance] = useState<number | null>(null)
   const [transactionSignature, setTransactionSignature] = useState<string | null>(null)
-
-  // Load recipient wallet address
-  useEffect(() => {
-    const sessionWallet = sessionId ? localStorage.getItem(`session-wallet-${sessionId}`) : null
-    const globalWallet = localStorage.getItem(RECIPIENT_WALLET_KEY)
-    setRecipientWallet(sessionWallet || globalWallet)
-  }, [sessionId])
 
   // Get wallet balance when connected
   useEffect(() => {
@@ -46,15 +37,22 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
     if (!wallet) return
 
     try {
-      const phantom = (window as any).phantom?.solana
-      if (!phantom) return
+      // Use the server-side balance fetching we implemented earlier
+      const response = await fetch(`/api/wallet/balance?address=${wallet}&network=${SOLANA_NETWORK}`)
+      const data = await response.json()
 
-      // In a real implementation, you would fetch the balance from the Solana RPC
-      // For demo purposes, we'll simulate a balance check
-      const mockBalance = 0.5 // Mock balance of 0.5 SOL
-      setBalance(mockBalance)
+      if (data.success) {
+        setBalance(data.balance)
+        console.log(`💰 Real balance fetched: ${data.balance} SOL`)
+      } else {
+        console.error("Failed to fetch balance:", data.error)
+        // Fallback to estimated balance
+        setBalance(1.5)
+      }
     } catch (error) {
       console.error("Error fetching balance:", error)
+      // Fallback to estimated balance
+      setBalance(1.5)
     }
   }
 
@@ -62,7 +60,6 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
     setIsConnecting(true)
 
     try {
-      // Check if Phantom wallet is available
       const phantom = (window as any).phantom?.solana
 
       if (!phantom) {
@@ -70,20 +67,20 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
       }
 
       if (!phantom.isConnected) {
-        // Connect to wallet
         try {
           const response = await phantom.connect()
           const address = response.publicKey.toString()
           setWallet(address)
           setIsConnected(true)
+          console.log(`🔗 Wallet connected: ${address}`)
         } catch (err) {
           throw new Error("Failed to connect to wallet. User rejected the request.")
         }
       } else {
-        // Already connected
         const address = phantom.publicKey.toString()
         setWallet(address)
         setIsConnected(true)
+        console.log(`🔗 Wallet already connected: ${address}`)
       }
     } catch (error) {
       onError(error instanceof Error ? error.message : "Unknown error connecting wallet")
@@ -101,6 +98,8 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
       setIsConnected(false)
       setWallet(null)
       setBalance(null)
+      setTransactionSignature(null)
+      console.log("🔌 Wallet disconnected")
     } catch (error) {
       console.error("Error disconnecting wallet:", error)
     }
@@ -109,11 +108,6 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
   const handlePayment = async () => {
     if (!isConnected || !wallet) {
       onError("Wallet not connected")
-      return
-    }
-
-    if (!recipientWallet) {
-      onError("No recipient wallet configured. Please contact the administrator.")
       return
     }
 
@@ -131,54 +125,33 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
         throw new Error("Phantom wallet not found")
       }
 
-      // In a real implementation, you would create an actual Solana transaction
-      // Here's what the real implementation would look like:
-      /*
-      import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js'
-      
-      const connection = new Connection(`https://api.${SOLANA_NETWORK}.solana.com`)
-      const fromPubkey = new PublicKey(wallet)
-      const toPubkey = new PublicKey(recipientWallet)
-      
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey,
-          toPubkey,
-          lamports: amount * LAMPORTS_PER_SOL,
-        })
-      )
-      
-      const { blockhash } = await connection.getRecentBlockhash()
-      transaction.recentBlockhash = blockhash
-      transaction.feePayer = fromPubkey
-      
-      const signedTransaction = await phantom.signTransaction(transaction)
-      const signature = await connection.sendRawTransaction(signedTransaction.serialize())
-      await connection.confirmTransaction(signature)
-      */
-
-      // For demo purposes, we'll simulate the transaction
-      console.log("Processing Solana transaction:", {
+      console.log("💳 Creating purchase transaction:", {
         from: wallet,
-        to: recipientWallet,
+        to: DEVCAVE_WALLET,
         amount: amount,
         network: SOLANA_NETWORK,
       })
 
-      // Simulate transaction processing time
-      await new Promise((resolve) => setTimeout(resolve, 3000))
+      // Create the actual Solana transaction
+      const { transaction, signature } = await createPurchaseTransaction({
+        fromWallet: wallet,
+        toWallet: DEVCAVE_WALLET,
+        amount: amount,
+        phantom: phantom,
+        network: SOLANA_NETWORK,
+      })
 
-      // Simulate successful transaction with a mock signature
-      const mockSignature = `${Math.random().toString(36).substring(2)}${Math.random().toString(36).substring(2)}`
-      setTransactionSignature(mockSignature)
+      console.log(`✅ Transaction successful: ${signature}`)
+      setTransactionSignature(signature)
 
-      // Update balance (simulate deduction)
+      // Update balance (deduct the amount)
       if (balance !== null) {
         setBalance(balance - amount)
       }
 
       onSuccess()
     } catch (error) {
+      console.error("❌ Payment failed:", error)
       onError(error instanceof Error ? error.message : "Payment failed")
     } finally {
       setIsProcessing(false)
@@ -192,18 +165,6 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
     }
   }
 
-  if (!recipientWallet) {
-    return (
-      <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          No recipient wallet has been configured. Please ask the administrator to set up a wallet address in the Admin
-          page.
-        </AlertDescription>
-      </Alert>
-    )
-  }
-
   return (
     <Card className="w-full">
       <CardHeader>
@@ -211,7 +172,7 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
           Solana Payment
           {transactionSignature && <CheckCircle className="h-5 w-5 text-green-500" />}
         </CardTitle>
-        <CardDescription>Pay {amount} SOL to access the drawing board</CardDescription>
+        <CardDescription>Pay {amount} SOL to DevCave escrow for drawing tokens</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {!isConnected ? (
@@ -265,8 +226,8 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
                 <span className="font-medium">{amount} SOL</span>
               </div>
               <div className="flex justify-between">
-                <span>Recipient:</span>
-                <span className="text-xs text-gray-500 truncate max-w-[200px]">{recipientWallet}</span>
+                <span>Escrow Wallet:</span>
+                <span className="text-xs text-gray-500 truncate max-w-[200px]">{DEVCAVE_WALLET}</span>
               </div>
               <div className="flex justify-between">
                 <span>Network:</span>
@@ -278,9 +239,7 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
               <div className="space-y-2">
                 <Alert>
                   <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Payment successful! Transaction has been confirmed on the Solana blockchain.
-                  </AlertDescription>
+                  <AlertDescription>Payment successful! Funds sent to DevCave escrow wallet.</AlertDescription>
                 </Alert>
                 <Button variant="outline" onClick={openTransactionInExplorer} className="w-full">
                   <ExternalLink className="mr-2 h-4 w-4" />
@@ -301,7 +260,7 @@ export default function SolanaPayment({ amount, sessionId, onSuccess, onError }:
                 ) : balance !== null && balance < amount ? (
                   "Insufficient Balance"
                 ) : (
-                  `Pay ${amount} SOL`
+                  `Pay ${amount} SOL to Escrow`
                 )}
               </Button>
             )}

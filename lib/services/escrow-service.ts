@@ -1,6 +1,12 @@
 import { sql } from "../database"
-import { getTokenValue } from "../pricing"
-import { calculateTransactionFees, deductFeesFromAmounts } from "../solana-fees"
+import { getTokenValue, DEVCAVE_WALLET } from "../pricing"
+import {
+  calculateTransactionFeesWithTolerance,
+  deductFeesFromAmountsFlexible,
+  isFeesAcceptable,
+  validateSufficientBalanceFlexible,
+} from "../solana-fees"
+import { createStreamerPayoutTransaction } from "../solana-transactions"
 
 export interface TokenEscrow {
   id: string
@@ -59,7 +65,7 @@ export class EscrowService {
     return result[0]
   }
 
-  // Queue token usage with proper value calculation and fee estimation
+  // Queue token usage with flexible fee estimation
   static async queueTokenUsage(
     escrowId: string,
     sessionId: string,
@@ -78,12 +84,20 @@ export class EscrowService {
     // Use the correct token value for payout (not purchase price)
     const tokenValue = getTokenValue(tokenUsed)
     const streamerAmount = tokenValue * 0.5
-    const devcaveAmount = tokenValue * 0.5
+    const devcaveAmount = tokenValue * 0.5 // This stays in DevCave wallet
 
-    // Estimate transaction fees for this release
-    const estimatedFees = calculateTransactionFees(2) // 2 transfer instructions
+    // Get fee estimate with tolerance
+    const feeCalc = calculateTransactionFeesWithTolerance(1) // 1 transfer instruction (only to streamer)
+    const estimatedFees = feeCalc.totalFee
 
-    console.log(`💰 Token usage: ${tokenUsed} token = ${tokenValue} SOL payout (${estimatedFees} SOL estimated fees)`)
+    console.log(`💰 Token usage with flexible fees:`, {
+      token_type: tokenUsed,
+      token_value: tokenValue,
+      streamer_amount: streamerAmount,
+      devcave_amount: devcaveAmount,
+      estimated_fees: estimatedFees,
+      fee_tolerance: feeCalc.toleranceRange,
+    })
 
     // Add to pending releases queue with fee estimation
     await sql`
@@ -109,7 +123,7 @@ export class EscrowService {
     `
   }
 
-  // Process batched releases with proper fee handling
+  // Process batched releases with flexible fee handling
   static async processPendingReleases(): Promise<void> {
     // Get all pending releases grouped by session
     const pendingBySession = await sql`
@@ -137,33 +151,40 @@ export class EscrowService {
 
         if (!session[0]) continue
 
-        // Calculate actual fees and adjust amounts
+        // Validate sufficient balance with tolerance
         const totalAmount = batch.total_streamer + batch.total_devcave
-        const actualFees = calculateTransactionFees(2) // 2 transfer instructions
+        if (!validateSufficientBalanceFlexible(totalAmount, batch.total_streamer, batch.total_estimated_fees)) {
+          console.warn(`⚠️ Skipping batch due to insufficient balance for fee tolerance`)
+          continue
+        }
 
-        const { adjustedStreamerAmount, adjustedDevcaveAmount, actualFeesDeducted } = deductFeesFromAmounts(
-          batch.total_streamer,
-          batch.total_devcave,
-          actualFees,
-        )
-
-        console.log(`💸 Fee calculation:`, {
-          original_streamer: batch.total_streamer,
-          original_devcave: batch.total_devcave,
-          adjusted_streamer: adjustedStreamerAmount,
-          adjusted_devcave: adjustedDevcaveAmount,
-          fees_deducted: actualFeesDeducted,
-        })
-
-        // Create batched transaction with fee-adjusted amounts
-        await this.executeBatchedRelease({
+        // Execute transaction and get actual fee
+        const { signature, actualFee } = await this.executeBatchedReleaseFlexible({
           sessionId: batch.session_id,
           streamerWallet: session[0].streamer_wallet,
-          devcaveWallet: process.env.DEVCAVE_WALLET!,
-          streamerAmount: adjustedStreamerAmount,
-          devcaveAmount: adjustedDevcaveAmount,
-          feesDeducted: actualFeesDeducted,
+          streamerAmount: batch.total_streamer,
+          devcaveAmount: batch.total_devcave,
+          estimatedFees: batch.total_estimated_fees,
           releaseIds: batch.release_ids,
+        })
+
+        // Calculate final amounts with actual fees
+        const { adjustedStreamerAmount, actualFeesDeducted, feeVariance } = deductFeesFromAmountsFlexible(
+          batch.total_streamer,
+          batch.total_devcave,
+          actualFee,
+          batch.total_estimated_fees,
+        )
+
+        console.log(`💸 Batch processed with flexible fees:`, {
+          estimated_fees: batch.total_estimated_fees,
+          actual_fees: actualFee,
+          fee_variance: feeVariance,
+          variance_percentage:
+            batch.total_estimated_fees > 0
+              ? ((feeVariance / batch.total_estimated_fees) * 100).toFixed(2) + "%"
+              : "N/A",
+          final_streamer_amount: adjustedStreamerAmount,
         })
 
         // Update escrow records with actual fees deducted
@@ -181,59 +202,62 @@ export class EscrowService {
           WHERE id = ANY(${batch.release_ids})
         `
 
-        console.log(`✅ Processed batch: ${batch.token_count} tokens, ${actualFeesDeducted} SOL fees deducted`)
+        console.log(`✅ Processed batch: ${batch.token_count} tokens, signature: ${signature}`)
       } catch (error) {
         console.error(`❌ Failed to process batch for session ${batch.session_id}:`, error)
+
+        // Don't delete pending releases on fee-related errors - they can be retried
+        if (error instanceof Error && error.message.includes("fee")) {
+          console.log(`🔄 Fee-related error, will retry batch later`)
+        }
       }
     }
   }
 
-  // Execute the actual blockchain transaction with fee handling
-  private static async executeBatchedRelease(params: {
+  // Execute transaction with flexible fee handling
+  private static async executeBatchedReleaseFlexible(params: {
     sessionId: string
     streamerWallet: string
-    devcaveWallet: string
     streamerAmount: number
     devcaveAmount: number
-    feesDeducted: number
+    estimatedFees: number
     releaseIds: string[]
-  }): Promise<void> {
-    console.log("🔄 Executing batched release with fees:", {
+  }): Promise<{ signature: string; actualFee: number }> {
+    console.log("🔄 Executing batched release with flexible fees:", {
       session: params.sessionId,
       streamer_amount: params.streamerAmount,
-      devcave_amount: params.devcaveAmount,
-      fees_deducted: params.feesDeducted,
+      devcave_keeps: params.devcaveAmount,
+      estimated_fees: params.estimatedFees,
       token_count: params.releaseIds.length,
     })
 
-    // Simulate transaction processing
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+      // Execute actual transaction from DevCave wallet to streamer
+      const { signature, actualFee } = await createStreamerPayoutTransaction({
+        fromWallet: DEVCAVE_WALLET,
+        toWallet: params.streamerWallet,
+        amount: params.streamerAmount,
+        network: "mainnet-beta",
+        maxAcceptableFee: params.estimatedFees * 1.5, // Allow 50% fee variance
+      })
 
-    // In production, this would create a multi-instruction Solana transaction:
-    /*
-    const transaction = new Transaction()
-    
-    // Add instruction to send to streamer (fee-adjusted amount)
-    transaction.add(
-      SystemProgram.transfer({
-        fromPubkey: escrowWallet,
-        toPubkey: new PublicKey(params.streamerWallet),
-        lamports: params.streamerAmount * LAMPORTS_PER_SOL
+      // Validate the actual fee is acceptable
+      if (!isFeesAcceptable(params.estimatedFees, actualFee)) {
+        throw new Error(`Transaction fee too high: ${actualFee} SOL`)
+      }
+
+      console.log(`💰 Streamer payout successful with flexible fees:`, {
+        signature,
+        estimated_fee: params.estimatedFees,
+        actual_fee: actualFee,
+        fee_difference: actualFee - params.estimatedFees,
       })
-    )
-    
-    // Add instruction to send to D3vCav3 (fee-adjusted amount)
-    transaction.add(
-      SystemProgram.transfer({
-        fromPubkey: escrowWallet,
-        toPubkey: new PublicKey(params.devcaveWallet),
-        lamports: params.devcaveAmount * LAMPORTS_PER_SOL
-      })
-    )
-    
-    // Transaction fees will be automatically deducted by Solana network
-    const signature = await sendAndConfirmTransaction(connection, transaction, [escrowKeypair])
-    */
+
+      return { signature, actualFee }
+    } catch (error) {
+      console.error("❌ Streamer payout failed:", error)
+      throw error
+    }
   }
 
   // Get active escrow for user/session
@@ -262,7 +286,7 @@ export class EscrowService {
     const pricePerToken = escrow[0].total_amount_paid / escrow[0].total_tokens_purchased
     const refundAmount = escrow[0].tokens_remaining * pricePerToken
 
-    // Execute refund transaction (in production)
+    // Execute refund transaction from DevCave wallet back to user
     console.log("💰 Processing refund:", {
       user: escrow[0].user_wallet,
       amount: refundAmount,
