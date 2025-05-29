@@ -1,5 +1,6 @@
 import { sql } from "../database"
 import { getTokenValue } from "../pricing"
+import { calculateTransactionFees, deductFeesFromAmounts } from "../solana-fees"
 
 export interface TokenEscrow {
   id: string
@@ -10,6 +11,7 @@ export interface TokenEscrow {
   tokens_remaining: number
   total_amount_paid: number
   amount_released: number
+  fees_deducted: number
   escrow_wallet: string
   purchase_type: string
   status: "active" | "closed" | "refunded"
@@ -25,6 +27,7 @@ export interface PendingRelease {
   token_type: "single" | "bundle" | "nuke"
   amount_streamer: number
   amount_devcave: number
+  estimated_fees: number
   created_at: Date
 }
 
@@ -44,19 +47,19 @@ export class EscrowService {
       INSERT INTO token_escrows (
         id, session_id, user_wallet, total_tokens_purchased, 
         tokens_used, tokens_remaining, total_amount_paid, 
-        amount_released, escrow_wallet, purchase_type, status
+        amount_released, fees_deducted, escrow_wallet, purchase_type, status
       )
       VALUES (
         ${id}, ${data.session_id}, ${data.user_wallet}, ${data.total_tokens_purchased},
         0, ${data.total_tokens_purchased}, ${data.total_amount_paid},
-        0, ${data.escrow_wallet}, ${data.purchase_type}, 'active'
+        0, 0, ${data.escrow_wallet}, ${data.purchase_type}, 'active'
       )
       RETURNING *
     `
     return result[0]
   }
 
-  // Queue token usage with proper value calculation
+  // Queue token usage with proper value calculation and fee estimation
   static async queueTokenUsage(
     escrowId: string,
     sessionId: string,
@@ -77,18 +80,21 @@ export class EscrowService {
     const streamerAmount = tokenValue * 0.5
     const devcaveAmount = tokenValue * 0.5
 
-    console.log(`💰 Token usage: ${tokenUsed} token = ${tokenValue} SOL payout`)
+    // Estimate transaction fees for this release
+    const estimatedFees = calculateTransactionFees(2) // 2 transfer instructions
 
-    // Add to pending releases queue
+    console.log(`💰 Token usage: ${tokenUsed} token = ${tokenValue} SOL payout (${estimatedFees} SOL estimated fees)`)
+
+    // Add to pending releases queue with fee estimation
     await sql`
       INSERT INTO pending_releases (
         id, escrow_id, session_id, user_wallet, token_type,
-        amount_streamer, amount_devcave
+        amount_streamer, amount_devcave, estimated_fees
       )
       VALUES (
         ${Math.random().toString(36).substring(2, 14)},
         ${escrowId}, ${sessionId}, ${userWallet}, ${tokenUsed},
-        ${streamerAmount}, ${devcaveAmount}
+        ${streamerAmount}, ${devcaveAmount}, ${estimatedFees}
       )
     `
 
@@ -103,7 +109,7 @@ export class EscrowService {
     `
   }
 
-  // Rest of the methods remain the same...
+  // Process batched releases with proper fee handling
   static async processPendingReleases(): Promise<void> {
     // Get all pending releases grouped by session
     const pendingBySession = await sql`
@@ -112,8 +118,10 @@ export class EscrowService {
         user_wallet,
         SUM(amount_streamer) as total_streamer,
         SUM(amount_devcave) as total_devcave,
+        SUM(estimated_fees) as total_estimated_fees,
         COUNT(*) as token_count,
-        ARRAY_AGG(id) as release_ids
+        ARRAY_AGG(id) as release_ids,
+        ARRAY_AGG(escrow_id) as escrow_ids
       FROM pending_releases
       WHERE created_at < NOW() - INTERVAL '30 seconds'
       GROUP BY session_id, user_wallet
@@ -124,20 +132,48 @@ export class EscrowService {
       try {
         // Get session wallet
         const session = await sql`
-          SELECT streamer_wallet FROM sessions WHERE id = ${batch.session_id}
+          SELECT streamer_wallet FROM sessions WHERE session_id = ${batch.session_id}
         `
 
         if (!session[0]) continue
 
-        // Create batched transaction
+        // Calculate actual fees and adjust amounts
+        const totalAmount = batch.total_streamer + batch.total_devcave
+        const actualFees = calculateTransactionFees(2) // 2 transfer instructions
+
+        const { adjustedStreamerAmount, adjustedDevcaveAmount, actualFeesDeducted } = deductFeesFromAmounts(
+          batch.total_streamer,
+          batch.total_devcave,
+          actualFees,
+        )
+
+        console.log(`💸 Fee calculation:`, {
+          original_streamer: batch.total_streamer,
+          original_devcave: batch.total_devcave,
+          adjusted_streamer: adjustedStreamerAmount,
+          adjusted_devcave: adjustedDevcaveAmount,
+          fees_deducted: actualFeesDeducted,
+        })
+
+        // Create batched transaction with fee-adjusted amounts
         await this.executeBatchedRelease({
           sessionId: batch.session_id,
           streamerWallet: session[0].streamer_wallet,
           devcaveWallet: process.env.DEVCAVE_WALLET!,
-          streamerAmount: batch.total_streamer,
-          devcaveAmount: batch.total_devcave,
+          streamerAmount: adjustedStreamerAmount,
+          devcaveAmount: adjustedDevcaveAmount,
+          feesDeducted: actualFeesDeducted,
           releaseIds: batch.release_ids,
         })
+
+        // Update escrow records with actual fees deducted
+        for (const escrowId of batch.escrow_ids) {
+          await sql`
+            UPDATE token_escrows 
+            SET fees_deducted = fees_deducted + ${actualFeesDeducted / batch.escrow_ids.length}
+            WHERE id = ${escrowId}
+          `
+        }
 
         // Mark as processed
         await sql`
@@ -145,32 +181,59 @@ export class EscrowService {
           WHERE id = ANY(${batch.release_ids})
         `
 
-        console.log(`✅ Processed batch: ${batch.token_count} tokens for session ${batch.session_id}`)
+        console.log(`✅ Processed batch: ${batch.token_count} tokens, ${actualFeesDeducted} SOL fees deducted`)
       } catch (error) {
         console.error(`❌ Failed to process batch for session ${batch.session_id}:`, error)
       }
     }
   }
 
-  // Execute the actual blockchain transaction
+  // Execute the actual blockchain transaction with fee handling
   private static async executeBatchedRelease(params: {
     sessionId: string
     streamerWallet: string
     devcaveWallet: string
     streamerAmount: number
     devcaveAmount: number
+    feesDeducted: number
     releaseIds: string[]
   }): Promise<void> {
-    // In production, this would create a multi-instruction Solana transaction
-    console.log("🔄 Executing batched release:", {
+    console.log("🔄 Executing batched release with fees:", {
       session: params.sessionId,
       streamer_amount: params.streamerAmount,
       devcave_amount: params.devcaveAmount,
+      fees_deducted: params.feesDeducted,
       token_count: params.releaseIds.length,
     })
 
     // Simulate transaction processing
     await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // In production, this would create a multi-instruction Solana transaction:
+    /*
+    const transaction = new Transaction()
+    
+    // Add instruction to send to streamer (fee-adjusted amount)
+    transaction.add(
+      SystemProgram.transfer({
+        fromPubkey: escrowWallet,
+        toPubkey: new PublicKey(params.streamerWallet),
+        lamports: params.streamerAmount * LAMPORTS_PER_SOL
+      })
+    )
+    
+    // Add instruction to send to D3vCav3 (fee-adjusted amount)
+    transaction.add(
+      SystemProgram.transfer({
+        fromPubkey: escrowWallet,
+        toPubkey: new PublicKey(params.devcaveWallet),
+        lamports: params.devcaveAmount * LAMPORTS_PER_SOL
+      })
+    )
+    
+    // Transaction fees will be automatically deducted by Solana network
+    const signature = await sendAndConfirmTransaction(connection, transaction, [escrowKeypair])
+    */
   }
 
   // Get active escrow for user/session
@@ -186,7 +249,7 @@ export class EscrowService {
     return result[0] || null
   }
 
-  // Process refund
+  // Process refund (fees already deducted from released amounts)
   static async processRefund(escrowId: string): Promise<number> {
     const escrow = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'

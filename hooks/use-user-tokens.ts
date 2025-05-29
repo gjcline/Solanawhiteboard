@@ -4,11 +4,12 @@ import { useState, useEffect } from "react"
 
 interface UserTokens {
   line_tokens: number
+  bundle_tokens: number
   nuke_tokens: number
 }
 
 export function useUserTokens(sessionId: string, walletAddress: string | null) {
-  const [tokens, setTokens] = useState<UserTokens>({ line_tokens: 0, nuke_tokens: 0 })
+  const [tokens, setTokens] = useState<UserTokens>({ line_tokens: 0, bundle_tokens: 0, nuke_tokens: 0 })
   const [loading, setLoading] = useState(false)
 
   const fetchTokens = async () => {
@@ -16,14 +17,19 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
 
     try {
       setLoading(true)
+      console.log("🔄 Fetching tokens for:", { sessionId, walletAddress })
+
       const response = await fetch(`/api/tokens/${sessionId}?wallet=${walletAddress}`)
 
       if (response.ok) {
         const data = await response.json()
-        setTokens(data.tokens)
+        console.log("📊 Fetched tokens:", data.tokens)
+        setTokens(data.tokens || { line_tokens: 0, bundle_tokens: 0, nuke_tokens: 0 })
+      } else {
+        console.error("❌ Failed to fetch tokens:", response.status, response.statusText)
       }
     } catch (error) {
-      console.error("Error fetching tokens:", error)
+      console.error("❌ Error fetching tokens:", error)
     } finally {
       setLoading(false)
     }
@@ -33,6 +39,8 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
     if (!sessionId || !walletAddress) return false
 
     try {
+      console.log("🎯 Using token:", { tokenType, sessionId, walletAddress })
+
       // Use the escrow API endpoint instead of direct token usage
       const response = await fetch(`/api/escrow/use-token`, {
         method: "POST",
@@ -48,12 +56,23 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
 
       if (response.ok) {
         const data = await response.json()
-        setTokens(data.tokens)
+        console.log("✅ Token used successfully:", data)
+
+        // Update local token state
+        if (data.tokens) {
+          setTokens(data.tokens)
+        } else {
+          // Refresh tokens if not returned
+          await fetchTokens()
+        }
         return true
+      } else {
+        const errorData = await response.json()
+        console.error("❌ Failed to use token:", errorData)
+        return false
       }
-      return false
     } catch (error) {
-      console.error("Error using token:", error)
+      console.error("❌ Error using token:", error)
       return false
     }
   }
@@ -62,6 +81,8 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
     if (!sessionId || !walletAddress) return false
 
     try {
+      console.log("💰 Purchasing tokens:", { tokenType, quantity, sessionId, walletAddress })
+
       // Calculate total amount based on token type and quantity
       let totalAmount = 0
       if (tokenType === "single") {
@@ -72,6 +93,8 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
       } else if (tokenType === "nuke") {
         totalAmount = 0.03 * quantity
       }
+
+      console.log("💵 Purchase details:", { tokenType, quantity, totalAmount })
 
       // Create escrow purchase
       const response = await fetch(`/api/escrow/purchase`, {
@@ -90,13 +113,23 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
 
       if (response.ok) {
         const data = await response.json()
-        // Refresh tokens to get updated balance
-        await fetchTokens()
+        console.log("✅ Purchase successful:", data)
+
+        // Update local token state
+        if (data.userTokens) {
+          setTokens(data.userTokens)
+        } else {
+          // Refresh tokens if not returned
+          await fetchTokens()
+        }
         return true
+      } else {
+        const errorData = await response.json()
+        console.error("❌ Purchase failed:", errorData)
+        return false
       }
-      return false
     } catch (error) {
-      console.error("Error purchasing tokens:", error)
+      console.error("❌ Error purchasing tokens:", error)
       return false
     }
   }

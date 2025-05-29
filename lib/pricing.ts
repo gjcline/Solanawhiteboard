@@ -10,15 +10,8 @@ export const REVENUE_SPLIT = {
   STREAMER_PERCENTAGE: 0.5, // 50% to streamer
 } as const
 
-// Token value for payouts (different from purchase price)
-export const TOKEN_VALUES = {
-  SINGLE_TOKEN: 0.005, // Full value for single purchases
-  BUNDLE_TOKEN: 0.002, // Reduced value for bundle purchases (0.02 / 10 = 0.002)
-  NUKE_TOKEN: 0.03, // Full value for nuke
-} as const
-
-// D3vCav3 wallet address (replace with actual address)
-export const DEVCAVE_WALLET = process.env.DEVCAVE_WALLET || "D3vCav3WalletAddressHere123456789"
+// D3vCav3 wallet address
+export const DEVCAVE_WALLET = process.env.DEVCAVE_WALLET || "4etSSZiwULay8LmcW8zecCWHHHocKbPYs7ZT9935GxT8"
 
 export const DRAWING_TIME_LIMIT = 5000 // 5 seconds per line in milliseconds
 
@@ -72,3 +65,10 @@ export function getTokenValue(tokenType: TokenType): number {
       return TOKEN_VALUES.SINGLE_TOKEN
   }
 }
+
+// Token value for payouts (different from purchase price)
+export const TOKEN_VALUES = {
+  SINGLE_TOKEN: 0.005, // Full value for single purchases
+  BUNDLE_TOKEN: 0.002, // Reduced value for bundle purchases (0.02 / 10 = 0.002)
+  NUKE_TOKEN: 0.03, // Full value for nuke
+} as const
