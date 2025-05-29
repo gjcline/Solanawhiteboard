@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useRef, useState, useEffect } from "react"
+import { useRef, useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -11,8 +11,8 @@ import { Paintbrush, AlertCircle, Bomb, Timer, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
-// How often to save/update the canvas (in milliseconds)
-const UPDATE_INTERVAL = 1000
+// How often to sync the canvas (in milliseconds)
+const SYNC_INTERVAL = 1000
 
 interface UserTokens {
   lines: number
@@ -56,11 +56,71 @@ export default function DrawingCanvas({
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const lastCanvasDataRef = useRef<string | null>(null)
   const { toast } = useToast()
 
   // Add new props and state for session validation
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenValidated, setTokenValidated] = useState(false)
+
+  // Load canvas data from server
+  const loadCanvasFromServer = useCallback(async () => {
+    if (!sessionId || !canvasRef.current || !ctx) return
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${Date.now()}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.canvasData && data.canvasData !== lastCanvasDataRef.current) {
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.onload = () => {
+            if (ctx && canvasRef.current) {
+              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+              ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
+              lastCanvasDataRef.current = data.canvasData
+            }
+          }
+          img.onerror = () => {
+            console.error("Failed to load canvas image from server")
+          }
+          img.src = data.canvasData
+        }
+      }
+    } catch (error) {
+      console.error("Error loading canvas from server:", error)
+    }
+  }, [sessionId, ctx])
+
+  // Save canvas data to server
+  const saveCanvasToServer = useCallback(async () => {
+    if (!sessionId || !canvasRef.current || isReadOnly) return
+
+    try {
+      const dataUrl = canvasRef.current.toDataURL("image/png")
+
+      // Only save if the canvas data has actually changed
+      if (dataUrl !== lastCanvasDataRef.current) {
+        const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ canvasData: dataUrl }),
+        })
+
+        if (response.ok) {
+          lastCanvasDataRef.current = dataUrl
+          console.log("Canvas saved to server successfully")
+        } else {
+          console.error("Failed to save canvas to server")
+        }
+      }
+    } catch (error) {
+      console.error("Error saving canvas to server:", error)
+    }
+  }, [sessionId, isReadOnly])
 
   // Initialize canvas and handle resizing
   useEffect(() => {
@@ -105,7 +165,7 @@ export default function DrawingCanvas({
           }
         } else {
           // Load from server if no current image
-          await loadCanvasFromServer(canvas, context)
+          await loadCanvasFromServer()
         }
       }
     }
@@ -131,68 +191,28 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, color, brushSize, sessionId])
+  }, [isFullscreen, color, brushSize, loadCanvasFromServer])
 
-  // Load canvas data from server
-  const loadCanvasFromServer = async (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) => {
-    if (!sessionId) return
-
-    try {
-      const response = await fetch(`/api/sessions/${sessionId}/canvas`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data.canvasData) {
-          const img = new Image()
-          img.crossOrigin = "anonymous"
-          img.onload = () => {
-            context.clearRect(0, 0, canvas.width, canvas.height)
-            context.drawImage(img, 0, 0, canvas.width, canvas.height)
-          }
-          img.src = data.canvasData
-        }
-      }
-    } catch (error) {
-      console.error("Error loading canvas from server:", error)
-    }
-  }
-
-  // Save canvas data to server
-  const saveCanvasToServer = async () => {
-    if (!sessionId || !canvasRef.current || isReadOnly) return
-
-    try {
-      const dataUrl = canvasRef.current.toDataURL("image/png")
-      await fetch(`/api/sessions/${sessionId}/canvas`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ canvasData: dataUrl }),
-      })
-    } catch (error) {
-      console.error("Error saving canvas to server:", error)
-    }
-  }
-
-  // Set up periodic canvas sync for read-only views
+  // Set up real-time canvas sync for read-only views
   useEffect(() => {
-    if (isReadOnly && sessionId) {
-      const syncCanvas = async () => {
-        if (canvasRef.current && ctx) {
-          await loadCanvasFromServer(canvasRef.current, ctx)
+    if (isReadOnly && sessionId && ctx) {
+      // Initial load
+      loadCanvasFromServer()
+
+      // Set up periodic sync
+      syncTimerRef.current = setInterval(() => {
+        loadCanvasFromServer()
+      }, SYNC_INTERVAL)
+
+      return () => {
+        if (syncTimerRef.current) {
+          clearInterval(syncTimerRef.current)
         }
       }
-
-      // Initial load
-      syncCanvas()
-
-      // Periodic sync
-      const interval = setInterval(syncCanvas, UPDATE_INTERVAL)
-      return () => clearInterval(interval)
     }
-  }, [isReadOnly, sessionId, ctx])
+  }, [isReadOnly, sessionId, ctx, loadCanvasFromServer])
 
-  // Check for nuke effects from server
+  // Check for nuke effects from localStorage (temporary bridge)
   useEffect(() => {
     if (isReadOnly && sessionId) {
       const checkForNuke = setInterval(async () => {
@@ -451,13 +471,8 @@ export default function DrawingCanvas({
 
     ctx.closePath()
 
-    // Save the drawing to server with a small delay to batch updates
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-    }
-    saveTimerRef.current = setTimeout(() => {
-      saveCanvasToServer()
-    }, 500)
+    // Save the drawing to server immediately after drawing stops
+    saveCanvasToServer()
 
     // Use setTimeout to defer the token usage callback to avoid setState during render
     setTimeout(() => {
@@ -579,6 +594,16 @@ export default function DrawingCanvas({
       })
     }, 0)
   }
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (drawingTimerRef.current) clearInterval(drawingTimerRef.current)
+      if (nukeTimerRef.current) clearTimeout(nukeTimerRef.current)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      if (syncTimerRef.current) clearInterval(syncTimerRef.current)
+    }
+  }, [])
 
   // Strict validation for drawing permissions
   // Check if user has line tokens or bundle tokens
@@ -718,7 +743,8 @@ export default function DrawingCanvas({
       {/* Only show this text in non-fullscreen read-only mode */}
       {isReadOnly && !isFullscreen && (
         <div className="mt-4 text-center text-sm text-gray-500">
-          this canvas syncs in real-time with the database. drawings from viewers appear here automatically.
+          this canvas syncs every {SYNC_INTERVAL / 1000} second{SYNC_INTERVAL !== 1000 ? "s" : ""} with the database.
+          drawings from viewers appear here automatically.
         </div>
       )}
     </div>

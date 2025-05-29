@@ -12,6 +12,7 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
 
     return NextResponse.json({
       canvasData: session?.canvas_data || null,
+      timestamp: Date.now(),
     })
   } catch (error) {
     console.error("Error fetching canvas data:", error)
@@ -27,13 +28,17 @@ export async function POST(request: NextRequest, { params }: { params: { session
       return NextResponse.json({ error: "Canvas data is required" }, { status: 400 })
     }
 
+    // Update canvas data in database
     await sql`
       UPDATE sessions 
       SET canvas_data = ${canvasData}, updated_at = NOW()
       WHERE session_id = ${params.sessionId} AND is_active = true
     `
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({
+      success: true,
+      timestamp: Date.now(),
+    })
   } catch (error) {
     console.error("Error saving canvas data:", error)
     return NextResponse.json({ error: "Failed to save canvas data" }, { status: 500 })
