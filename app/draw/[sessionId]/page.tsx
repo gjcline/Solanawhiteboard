@@ -1,11 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, AlertCircle, Zap, Timer, Bomb, DollarSign, Wallet, Eye } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Loader2, AlertCircle, Zap, Timer, Bomb, DollarSign, Wallet } from "lucide-react"
 import WalletConnection from "@/components/wallet-connection"
 import PurchaseOptions from "@/components/purchase-options"
 import DrawingCanvas from "@/components/drawing-canvas"
@@ -31,14 +30,6 @@ export default function DrawPage() {
   const [walletBalance, setWalletBalance] = useState(0)
   const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
   const [sessionDeleted, setSessionDeleted] = useState(false)
-  const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
-
-  // const useTheToken = useCallback(
-  //   (tokenType: "line" | "nuke") => {
-  //     useToken(tokenType)
-  //   },
-  //   [useToken],
-  // )
 
   // Validate session exists
   useEffect(() => {
@@ -112,21 +103,12 @@ export default function DrawPage() {
     })
   }
 
-  const handleTokenUsed = (tokenType: "line" | "nuke") => {
-    setTokenTypeUsed(tokenType)
-    useToken(tokenType)
-  }
-
-  // useEffect(() => {
-  //   if (tokenTypeUsed) {
-  //     useTheToken(tokenTypeUsed)
-  //     setTokenTypeUsed(null)
-  //   }
-  // }, [tokenTypeUsed, useTheToken])
-
-  const openViewPage = () => {
-    window.open(`/view/${sessionId}`, "_blank")
-  }
+  const handleTokenUsed = useCallback(
+    (tokenType: "line" | "nuke") => {
+      useToken(tokenType)
+    },
+    [useToken],
+  )
 
   if (isLoading) {
     return (
@@ -196,25 +178,9 @@ export default function DrawPage() {
                 ID: <span className="pump-text-gradient font-mono">{sessionId}</span>
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={openViewPage}
-                className="border-gray-600 text-gray-300 hover:bg-gray-700"
-              >
-                <Eye className="h-4 w-4 mr-2" />
-                view mode
-              </Button>
-              {walletAddress && (
-                <div className="text-right">
-                  <div className="text-sm text-gray-400">your tokens</div>
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className="text-[#00ff88]">{tokens?.lines} lines</span>
-                    <span className="text-red-400">{tokens?.nukes} nukes</span>
-                  </div>
-                </div>
-              )}
+            <div className="text-right">
+              <div className="text-sm text-gray-400">mainnet • solana</div>
+              <div className="text-xs text-gray-500">powered by draw.fun</div>
             </div>
           </div>
         </div>
@@ -319,6 +285,29 @@ export default function DrawPage() {
                 />
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {/* Token Balance Display - Right Above Whiteboard */}
+        {walletAddress && (
+          <div className="mb-4">
+            <div className="flex items-center justify-center gap-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+              <div className="text-center">
+                <div className="text-sm text-gray-400 mb-1">your tokens</div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50 rounded">
+                    <Timer className="h-4 w-4 text-[#00ff88]" />
+                    <span className="text-white text-sm">line tokens:</span>
+                    <span className="text-[#00ff88] font-bold text-lg">{tokens?.lines || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-700/50 rounded">
+                    <Bomb className="h-4 w-4 text-red-400" />
+                    <span className="text-white text-sm">nuke tokens:</span>
+                    <span className="text-red-400 font-bold text-lg">{tokens?.nukes || 0}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
