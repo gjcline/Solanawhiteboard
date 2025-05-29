@@ -52,7 +52,7 @@ export interface PendingRelease {
 export class EscrowService {
   static async createEscrow(escrowData: EscrowRecord): Promise<EscrowRecord> {
     try {
-      console.log("🏦 Creating escrow (v2):", escrowData)
+      console.log("🏦 Creating escrow (v3):", escrowData)
 
       // Ensure the table exists
       await sql`
@@ -75,7 +75,7 @@ export class EscrowService {
         `INSERT INTO escrow_transactions 
          (session_id, user_wallet, total_tokens_purchased, total_amount_paid, escrow_wallet, purchase_type, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-         RETURNING id`, // Only return the ID
+         RETURNING id`,
         [
           escrowData.session_id,
           escrowData.user_wallet,
@@ -86,7 +86,10 @@ export class EscrowService {
         ],
       )
 
-      if (!insertResult || !insertResult.rows || insertResult.rows.length === 0 || !insertResult.rows[0].id) {
+      console.log("Raw insertResult:", insertResult)
+
+      // Fix: Vercel Postgres sql.query returns rows directly as an array, not wrapped in { rows: [...] }
+      if (!insertResult || !Array.isArray(insertResult) || insertResult.length === 0 || !insertResult[0].id) {
         console.error(
           "⚠️ No ID returned from insert operation for escrowData:",
           escrowData,
@@ -96,22 +99,25 @@ export class EscrowService {
         throw new Error("Failed to create escrow record: No ID returned after insert.")
       }
 
-      const newEscrowId = insertResult.rows[0].id
+      const newEscrowId = insertResult[0].id
       console.log(`✅ Escrow record inserted with ID: ${newEscrowId}`)
 
       // Step 2: Fetch the newly created record using its ID
       const selectResult = await sql.query(`SELECT * FROM escrow_transactions WHERE id = $1`, [newEscrowId])
 
-      if (!selectResult || !selectResult.rows || selectResult.rows.length === 0) {
+      console.log("Raw selectResult:", selectResult)
+
+      // Fix: Same here - selectResult is directly an array
+      if (!selectResult || !Array.isArray(selectResult) || selectResult.length === 0) {
         console.error(`⚠️ Failed to fetch escrow record with ID ${newEscrowId} after insert.`)
         throw new Error(`Failed to retrieve escrow record (ID: ${newEscrowId}) after creation.`)
       }
 
-      console.log("✅ Escrow created and fetched:", selectResult.rows[0])
-      return selectResult.rows[0]
+      console.log("✅ Escrow created and fetched:", selectResult[0])
+      return selectResult[0]
     } catch (error) {
-      console.error("❌ Error in createEscrow (v2):", error)
-      throw error // Re-throw to be handled by the API route
+      console.error("❌ Error in createEscrow (v3):", error)
+      throw error
     }
   }
 
@@ -135,7 +141,9 @@ export class EscrowService {
         `SELECT * FROM escrow_transactions WHERE session_id = $1 ORDER BY created_at DESC`,
         [sessionId],
       )
-      return result?.rows || []
+
+      // Fix: result is directly an array
+      return Array.isArray(result) ? result : []
     } catch (error) {
       console.error("❌ Error getting escrows by session:", error)
       return []
@@ -161,7 +169,7 @@ export class EscrowService {
     const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
     `
-    const escrow = escrowResult.rows[0]
+    const escrow = escrowResult[0] // Fix: escrowResult is directly an array
 
     if (!escrow || escrow.tokens_remaining <= 0) {
       throw new Error("No tokens available or escrow not found")
@@ -221,14 +229,14 @@ export class EscrowService {
       GROUP BY session_id, user_wallet
       HAVING COUNT(*) >= 3 OR MIN(created_at) < NOW() - INTERVAL '2 minutes'
     `
-    const pendingBySession = pendingBySessionResult.rows
+    const pendingBySession = pendingBySessionResult // Fix: result is directly an array
 
     for (const batch of pendingBySession) {
       try {
         const sessionResult = await sql`
           SELECT streamer_wallet FROM sessions WHERE session_id = ${batch.session_id}
         `
-        const session = sessionResult.rows[0]
+        const session = sessionResult[0] // Fix: result is directly an array
 
         if (!session) continue
 
@@ -340,14 +348,14 @@ export class EscrowService {
       ORDER BY created_at DESC
       LIMIT 1
     `
-    return result.rows[0] || null
+    return result[0] || null // Fix: result is directly an array
   }
 
   static async processRefund(escrowId: string): Promise<number> {
     const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
     `
-    const escrow = escrowResult.rows[0]
+    const escrow = escrowResult[0] // Fix: result is directly an array
 
     if (!escrow || escrow.tokens_remaining <= 0) {
       return 0
