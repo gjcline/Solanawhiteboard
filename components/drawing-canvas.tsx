@@ -387,7 +387,8 @@ export default function DrawingCanvas({
       const data = await response.json()
       const serverTokens = data.tokens
 
-      if (!serverTokens || serverTokens.line_tokens <= 0) {
+      // Check if user has line tokens or bundle tokens
+      if (!serverTokens || (serverTokens.line_tokens <= 0 && serverTokens.bundle_tokens <= 0)) {
         toast({
           title: "no line tokens",
           description: "purchase line tokens to start drawing.",
@@ -435,7 +436,10 @@ export default function DrawingCanvas({
     }
 
     // STRICT TOKEN VALIDATION - Check both client and server
-    if (userTokens.lines <= 0) {
+    // For client-side, check if user has line tokens or bundle tokens
+    const clientHasTokens =
+      userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
+    if (!clientHasTokens) {
       toast({
         title: "no line tokens",
         description: "purchase line tokens to start drawing.",
@@ -637,7 +641,10 @@ export default function DrawingCanvas({
   }
 
   // Strict validation for drawing permissions
-  const canDraw = walletAddress && userTokens.lines > 0 && !sessionDeleted && !isDrawing
+  // Check if user has line tokens or bundle tokens
+  const hasLineTokens =
+    userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
+  const canDraw = walletAddress && hasLineTokens && !sessionDeleted && !isDrawing
   const canNuke = walletAddress && userTokens.nukes > 0 && !sessionDeleted
 
   return (
@@ -661,7 +668,11 @@ export default function DrawingCanvas({
               <Timer className="h-4 w-4 text-[#00ff88]" />
               <span>Drawing Time: {(timeLeft / 1000).toFixed(1)}s</span>
             </div>
-            <div className="text-xs text-gray-400">{userTokens.lines - 1} tokens remaining after this line</div>
+            <div className="text-xs text-gray-400">
+              {hasLineTokens
+                ? `${userTokens.lines + ((userTokens as any).bundle_tokens || 0) - 1} tokens remaining after this line`
+                : "0 tokens remaining"}
+            </div>
           </div>
           <Progress value={(timeLeft / DRAWING_TIME_LIMIT) * 100} className="h-2" />
         </div>
@@ -694,7 +705,8 @@ export default function DrawingCanvas({
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  ready to draw! you have {userTokens.lines} line tokens and {userTokens.nukes} nuke tokens.
+                  ready to draw! you have {userTokens.lines} line tokens, {(userTokens as any).bundle_tokens || 0}{" "}
+                  bundle tokens, and {userTokens.nukes} nuke tokens.
                 </AlertDescription>
               </Alert>
             )}
