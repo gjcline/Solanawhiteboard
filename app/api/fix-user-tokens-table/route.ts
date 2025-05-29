@@ -3,99 +3,45 @@ import { sql } from "@/lib/database"
 
 export async function POST() {
   try {
-    console.log("Checking user_tokens table structure...")
+    console.log("🔧 Fixing user_tokens table...")
 
-    // Check if user_tokens table exists
-    const tableExists = await sql`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_name = 'user_tokens' 
-      AND table_schema = 'public'
+    // Drop existing table if it exists
+    await sql`DROP TABLE IF EXISTS user_tokens`
+    console.log("✅ Dropped existing user_tokens table")
+
+    // Create new table with proper constraints
+    await sql`
+      CREATE TABLE user_tokens (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(255) NOT NULL,
+        user_wallet VARCHAR(255) NOT NULL,
+        line_tokens INTEGER DEFAULT 0,
+        bundle_tokens INTEGER DEFAULT 0,
+        nuke_tokens INTEGER DEFAULT 0,
+        last_purchase_type VARCHAR(20) DEFAULT 'single',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(session_id, user_wallet)
+      )
     `
+    console.log("✅ Created user_tokens table with unique constraint")
 
-    if (tableExists.length === 0) {
-      console.log("Creating user_tokens table...")
-
-      // Create the table with correct column names
-      await sql`
-        CREATE TABLE user_tokens (
-          session_id VARCHAR(255) NOT NULL,
-          wallet_address VARCHAR(255) NOT NULL,
-          line_tokens INTEGER DEFAULT 0,
-          nuke_tokens INTEGER DEFAULT 0,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (session_id, wallet_address)
-        )
-      `
-
-      console.log("user_tokens table created successfully")
-
-      return NextResponse.json({
-        success: true,
-        message: "user_tokens table created with correct schema",
-      })
-    }
-
-    // Check current columns
-    const columns = await sql`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_name = 'user_tokens' 
-      AND table_schema = 'public'
+    // Create index for faster lookups
+    await sql`
+      CREATE INDEX idx_user_tokens_session_wallet ON user_tokens(session_id, user_wallet)
     `
-
-    const columnNames = columns.map((col) => col.column_name)
-    console.log("Current columns:", columnNames)
-
-    // Check if we need to rename user_wallet to wallet_address
-    if (columnNames.includes("user_wallet") && !columnNames.includes("wallet_address")) {
-      console.log("Renaming user_wallet column to wallet_address...")
-
-      await sql`
-        ALTER TABLE user_tokens 
-        RENAME COLUMN user_wallet TO wallet_address
-      `
-
-      console.log("Column renamed successfully")
-
-      return NextResponse.json({
-        success: true,
-        message: "user_wallet column renamed to wallet_address",
-      })
-    }
-
-    // If wallet_address doesn't exist but user_wallet doesn't either, add wallet_address
-    if (!columnNames.includes("wallet_address")) {
-      console.log("Adding wallet_address column...")
-
-      await sql`
-        ALTER TABLE user_tokens 
-        ADD COLUMN wallet_address VARCHAR(255)
-      `
-
-      console.log("wallet_address column added")
-
-      return NextResponse.json({
-        success: true,
-        message: "wallet_address column added to user_tokens table",
-      })
-    }
-
-    console.log("user_tokens table structure is correct")
+    console.log("✅ Created index on session_id, user_wallet")
 
     return NextResponse.json({
       success: true,
-      message: "user_tokens table structure is already correct",
-      columns: columnNames,
+      message: "user_tokens table fixed successfully",
     })
   } catch (error) {
-    console.error("Error fixing user_tokens table:", error)
-
+    console.error("❌ Error fixing user_tokens table:", error)
     return NextResponse.json(
       {
-        success: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: "Failed to fix user_tokens table",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )

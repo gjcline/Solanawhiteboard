@@ -44,35 +44,34 @@ export class UserTokenService {
     try {
       console.log("💰 Adding tokens:", { sessionId, userWallet, tokenType, quantity })
 
-      // Determine which column to update based on token type
-      let columnToUpdate = "line_tokens"
+      // Use a single query that handles all token types
       if (tokenType === "bundle") {
-        columnToUpdate = "bundle_tokens"
-      } else if (tokenType === "nuke") {
-        columnToUpdate = "nuke_tokens"
-      }
-
-      // Insert or update tokens using tagged template literal
-      if (columnToUpdate === "line_tokens") {
-        await sql`
-          INSERT INTO user_tokens (session_id, user_wallet, line_tokens) 
-          VALUES (${sessionId}, ${userWallet}, ${quantity})
-          ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET line_tokens = user_tokens.line_tokens + ${quantity}
-        `
-      } else if (columnToUpdate === "bundle_tokens") {
         await sql`
           INSERT INTO user_tokens (session_id, user_wallet, bundle_tokens) 
           VALUES (${sessionId}, ${userWallet}, ${quantity})
           ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET bundle_tokens = user_tokens.bundle_tokens + ${quantity}
+          DO UPDATE SET 
+            bundle_tokens = user_tokens.bundle_tokens + ${quantity},
+            updated_at = CURRENT_TIMESTAMP
         `
-      } else if (columnToUpdate === "nuke_tokens") {
+      } else if (tokenType === "nuke") {
         await sql`
           INSERT INTO user_tokens (session_id, user_wallet, nuke_tokens) 
           VALUES (${sessionId}, ${userWallet}, ${quantity})
           ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET nuke_tokens = user_tokens.nuke_tokens + ${quantity}
+          DO UPDATE SET 
+            nuke_tokens = user_tokens.nuke_tokens + ${quantity},
+            updated_at = CURRENT_TIMESTAMP
+        `
+      } else {
+        // Default to line tokens for "single" or any other type
+        await sql`
+          INSERT INTO user_tokens (session_id, user_wallet, line_tokens) 
+          VALUES (${sessionId}, ${userWallet}, ${quantity})
+          ON CONFLICT (session_id, user_wallet) 
+          DO UPDATE SET 
+            line_tokens = user_tokens.line_tokens + ${quantity},
+            updated_at = CURRENT_TIMESTAMP
         `
       }
 
@@ -99,7 +98,7 @@ export class UserTokenService {
         // Try to use bundle_tokens first, then line_tokens
         const bundleResult = await sql`
           UPDATE user_tokens 
-          SET bundle_tokens = bundle_tokens - 1 
+          SET bundle_tokens = bundle_tokens - 1, updated_at = CURRENT_TIMESTAMP
           WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND bundle_tokens > 0
           RETURNING bundle_tokens
         `
@@ -112,7 +111,7 @@ export class UserTokenService {
         // If no bundle tokens, try line tokens
         const lineResult = await sql`
           UPDATE user_tokens 
-          SET line_tokens = line_tokens - 1 
+          SET line_tokens = line_tokens - 1, updated_at = CURRENT_TIMESTAMP
           WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND line_tokens > 0
           RETURNING line_tokens
         `
@@ -124,7 +123,7 @@ export class UserTokenService {
       } else if (tokenType === "nuke") {
         const result = await sql`
           UPDATE user_tokens 
-          SET nuke_tokens = nuke_tokens - 1 
+          SET nuke_tokens = nuke_tokens - 1, updated_at = CURRENT_TIMESTAMP
           WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND nuke_tokens > 0
           RETURNING nuke_tokens
         `
