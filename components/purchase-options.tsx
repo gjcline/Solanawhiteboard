@@ -116,22 +116,46 @@ export default function PurchaseOptions({
     setProcessingType(option.type)
 
     try {
-      // Create escrow transaction - funds are held, not immediately distributed
-      console.log("Creating escrow for token purchase:", {
+      // Get Phantom wallet
+      const phantom = (window as any).phantom?.solana
+      if (!phantom) {
+        throw new Error("Phantom wallet not found")
+      }
+
+      console.log("💳 Creating purchase transaction:", {
+        from: walletAddress,
+        to: DEVCAVE_WALLET,
+        amount: option.price,
+        type: option.type,
+      })
+
+      // Import the transaction creation function
+      const { createPurchaseTransaction } = await import("@/lib/solana-transactions")
+
+      // Create and execute the actual Solana transaction
+      const { signature, actualFee } = await createPurchaseTransaction({
+        fromWallet: walletAddress,
+        toWallet: DEVCAVE_WALLET,
+        amount: option.price,
+        phantom: phantom,
+        network: "mainnet-beta",
+      })
+
+      console.log(`✅ Transaction successful: ${signature}`)
+
+      // Update balance (deduct amount + fee)
+      const newBalance = walletBalance - option.price - actualFee
+      onBalanceUpdate(newBalance)
+
+      // Now create escrow record in database
+      console.log("Creating escrow record for token purchase:", {
         type: option.type,
         totalAmount: option.price,
         from: walletAddress,
         sessionWallet: sessionWallet,
         devcaveWallet: DEVCAVE_WALLET,
-        note: "Funds held in escrow until tokens are used",
+        transactionSignature: signature,
       })
-
-      // Simulate escrow creation (in production, this creates a PDA escrow account)
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-
-      // Update balance (user has paid into escrow)
-      const newBalance = walletBalance - option.price
-      onBalanceUpdate(newBalance)
 
       // Determine quantity based on purchase type
       let quantity = 1
@@ -139,13 +163,29 @@ export default function PurchaseOptions({
         quantity = 10 // 10 lines in bundle
       }
 
-      // Add tokens to user's balance (they can use them immediately)
+      // Add tokens to user's balance
       const success = await onPurchaseSuccess(option.type, quantity)
 
       if (success) {
         toast({
           title: "tokens purchased!",
-          description: `${option.title} purchased for ${option.price} SOL. Tokens added to your account.`,
+          description: (
+            <div>
+              <p>
+                {option.title} purchased for {option.price} SOL.
+              </p>
+              <p className="text-xs mt-1">
+                <a
+                  href={`https://explorer.solana.com/tx/${signature}?cluster=mainnet-beta`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  View transaction
+                </a>
+              </p>
+            </div>
+          ),
         })
       } else {
         toast({
@@ -156,11 +196,22 @@ export default function PurchaseOptions({
         })
       }
     } catch (error) {
-      toast({
-        title: "purchase failed",
-        description: error instanceof Error ? error.message : "failed to process payment",
-        variant: "destructive",
-      })
+      console.error("❌ Purchase failed:", error)
+
+      // Check if user rejected the transaction
+      if (error instanceof Error && error.message.includes("User rejected")) {
+        toast({
+          title: "transaction cancelled",
+          description: "you cancelled the transaction in your wallet.",
+          variant: "destructive",
+        })
+      } else {
+        toast({
+          title: "purchase failed",
+          description: error instanceof Error ? error.message : "failed to process payment",
+          variant: "destructive",
+        })
+      }
     } finally {
       setProcessingType(null)
     }
