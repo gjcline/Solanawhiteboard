@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -30,6 +30,8 @@ export default function DrawPage() {
   const [walletBalance, setWalletBalance] = useState(0)
   const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
   const [sessionDeleted, setSessionDeleted] = useState(false)
+  const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
+  const [tokenToUse, setTokenToUse] = useState<"line" | "nuke" | null>(null)
 
   // Validate session exists
   useEffect(() => {
@@ -94,21 +96,35 @@ export default function DrawPage() {
     setWalletBalance(balance)
   }
 
-  const handlePurchaseSuccess = (type: string, quantity: number) => {
-    addTokens(type, quantity)
+  const handlePurchaseSuccess = async (type: string, quantity: number) => {
+    try {
+      const success = await addTokens(type, quantity)
 
-    toast({
-      title: "tokens added!",
-      description: `${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
-    })
+      if (success) {
+        toast({
+          title: "tokens added!",
+          description: `${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
+        })
+        return true
+      } else {
+        return false
+      }
+    } catch (error) {
+      console.error("Error in handlePurchaseSuccess:", error)
+      return false
+    }
   }
 
-  const handleTokenUsed = useCallback(
-    (tokenType: "line" | "nuke") => {
-      useToken(tokenType)
-    },
-    [useToken],
-  )
+  const handleTokenUsed = (tokenType: "line" | "nuke") => {
+    setTokenToUse(tokenType)
+  }
+
+  useEffect(() => {
+    if (tokenToUse) {
+      useToken(tokenToUse)
+      setTokenToUse(null)
+    }
+  }, [tokenToUse, useToken])
 
   if (isLoading) {
     return (

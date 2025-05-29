@@ -13,7 +13,7 @@ interface PurchaseOptionsProps {
   sessionId: string
   walletAddress: string | null
   walletBalance: number
-  onPurchaseSuccess: (type: string, quantity: number) => void
+  onPurchaseSuccess: (type: string, quantity: number) => Promise<boolean>
   onBalanceUpdate: (balance: number) => void
 }
 
@@ -140,12 +140,21 @@ export default function PurchaseOptions({
       }
 
       // Add tokens to user's balance (they can use them immediately)
-      onPurchaseSuccess(option.type, quantity)
+      const success = await onPurchaseSuccess(option.type, quantity)
 
-      toast({
-        title: "tokens purchased!",
-        description: `${option.title} purchased for ${option.price} SOL. Funds held in escrow until you use the tokens.`,
-      })
+      if (success) {
+        toast({
+          title: "tokens purchased!",
+          description: `${option.title} purchased for ${option.price} SOL. Tokens added to your account.`,
+        })
+      } else {
+        toast({
+          title: "purchase completed but tokens not updated",
+          description:
+            "Your payment went through but there was an issue updating your token balance. Please refresh the page.",
+          variant: "destructive",
+        })
+      }
     } catch (error) {
       toast({
         title: "purchase failed",

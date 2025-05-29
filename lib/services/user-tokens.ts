@@ -1,123 +1,129 @@
-import { sql } from "../database"
+import { sql } from "@/lib/database"
 
 export interface UserTokens {
-  session_id: string
-  user_wallet: string
   line_tokens: number
   bundle_tokens: number
   nuke_tokens: number
-  last_purchase_type: string
-  updated_at: Date
 }
 
 export class UserTokenService {
-  // Get user tokens for a session
   static async getTokens(sessionId: string, userWallet: string): Promise<UserTokens | null> {
     try {
+      console.log("🔍 Getting tokens for:", { sessionId, userWallet })
+
       const result = await sql`
-        SELECT * FROM user_tokens 
+        SELECT line_tokens, bundle_tokens, nuke_tokens 
+        FROM user_tokens 
         WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
       `
-      return result[0] || null
+
+      if (result.length === 0) {
+        console.log("📊 No tokens found, returning defaults")
+        return {
+          line_tokens: 0,
+          bundle_tokens: 0,
+          nuke_tokens: 0,
+        }
+      }
+
+      const tokens = result[0]
+      console.log("📊 Found tokens:", tokens)
+      return tokens
     } catch (error) {
-      console.error("Error getting user tokens:", error)
+      console.error("❌ Error getting tokens:", error)
       return null
     }
   }
 
-  // Add tokens based on purchase type
   static async addTokens(
     sessionId: string,
     userWallet: string,
-    purchaseType: "single" | "bundle" | "nuke",
-    quantity = 1,
-  ): Promise<void> {
+    tokenType: string,
+    quantity: number,
+  ): Promise<UserTokens | null> {
     try {
-      // Determine which token type to add
-      let lineTokens = 0
-      let bundleTokens = 0
-      let nukeTokens = 0
+      console.log("💰 Adding tokens:", { sessionId, userWallet, tokenType, quantity })
 
-      switch (purchaseType) {
-        case "single":
-          lineTokens = quantity
-          break
-        case "bundle":
-          bundleTokens = quantity // This will be 10 for a bundle purchase
-          break
-        case "nuke":
-          nukeTokens = quantity
-          break
+      // Determine which column to update based on token type
+      let columnToUpdate = "line_tokens"
+      if (tokenType === "bundle") {
+        columnToUpdate = "bundle_tokens"
+      } else if (tokenType === "nuke") {
+        columnToUpdate = "nuke_tokens"
       }
 
+      // Insert or update tokens
       await sql`
-        INSERT INTO user_tokens (session_id, user_wallet, line_tokens, bundle_tokens, nuke_tokens, last_purchase_type)
-        VALUES (${sessionId}, ${userWallet}, ${lineTokens}, ${bundleTokens}, ${nukeTokens}, ${purchaseType})
-        ON CONFLICT (session_id, user_wallet)
-        DO UPDATE SET
-          line_tokens = user_tokens.line_tokens + ${lineTokens},
-          bundle_tokens = user_tokens.bundle_tokens + ${bundleTokens},
-          nuke_tokens = user_tokens.nuke_tokens + ${nukeTokens},
-          last_purchase_type = ${purchaseType},
-          updated_at = NOW()
+        INSERT INTO user_tokens (session_id, user_wallet, ${sql(columnToUpdate)}) 
+        VALUES (${sessionId}, ${userWallet}, ${quantity})
+        ON CONFLICT (session_id, user_wallet) 
+        DO UPDATE SET ${sql(columnToUpdate)} = user_tokens.${sql(columnToUpdate)} + ${quantity}
       `
+
+      console.log("✅ Tokens added successfully")
+
+      // Return updated tokens
+      return await this.getTokens(sessionId, userWallet)
     } catch (error) {
-      console.error("Error adding tokens:", error)
-      throw error
+      console.error("❌ Error adding tokens:", error)
+      return null
     }
   }
 
-  // Use a token (prioritize bundle tokens for line drawing)
   static async useToken(
     sessionId: string,
     userWallet: string,
     tokenType: "line" | "nuke",
-  ): Promise<{ success: boolean; tokenUsed: "single" | "bundle" | "nuke" | null }> {
+  ): Promise<{ success: boolean; tokenUsed?: string }> {
     try {
-      const tokens = await this.getTokens(sessionId, userWallet)
-      if (!tokens) {
-        return { success: false, tokenUsed: null }
-      }
+      console.log("🎯 Using token:", { sessionId, userWallet, tokenType })
 
+      // For line tokens, we can use either line_tokens or bundle_tokens
       if (tokenType === "line") {
-        // Prioritize bundle tokens first (cheaper payout)
-        if (tokens.bundle_tokens > 0) {
-          await sql`
-            UPDATE user_tokens 
-            SET bundle_tokens = bundle_tokens - 1, updated_at = NOW()
-            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
-          `
+        // Try to use bundle_tokens first, then line_tokens
+        const bundleResult = await sql`
+          UPDATE user_tokens 
+          SET bundle_tokens = bundle_tokens - 1 
+          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND bundle_tokens > 0
+          RETURNING bundle_tokens
+        `
+
+        if (bundleResult.length > 0) {
+          console.log("✅ Used bundle token")
           return { success: true, tokenUsed: "bundle" }
-        } else if (tokens.line_tokens > 0) {
-          await sql`
-            UPDATE user_tokens 
-            SET line_tokens = line_tokens - 1, updated_at = NOW()
-            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
-          `
-          return { success: true, tokenUsed: "single" }
+        }
+
+        // If no bundle tokens, try line tokens
+        const lineResult = await sql`
+          UPDATE user_tokens 
+          SET line_tokens = line_tokens - 1 
+          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND line_tokens > 0
+          RETURNING line_tokens
+        `
+
+        if (lineResult.length > 0) {
+          console.log("✅ Used line token")
+          return { success: true, tokenUsed: "line" }
         }
       } else if (tokenType === "nuke") {
-        if (tokens.nuke_tokens > 0) {
-          await sql`
-            UPDATE user_tokens 
-            SET nuke_tokens = nuke_tokens - 1, updated_at = NOW()
-            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
-          `
+        const result = await sql`
+          UPDATE user_tokens 
+          SET nuke_tokens = nuke_tokens - 1 
+          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND nuke_tokens > 0
+          RETURNING nuke_tokens
+        `
+
+        if (result.length > 0) {
+          console.log("✅ Used nuke token")
           return { success: true, tokenUsed: "nuke" }
         }
       }
 
-      return { success: false, tokenUsed: null }
+      console.log("❌ No tokens available to use")
+      return { success: false }
     } catch (error) {
-      console.error("Error using token:", error)
-      return { success: false, tokenUsed: null }
+      console.error("❌ Error using token:", error)
+      return { success: false }
     }
-  }
-
-  // Get total available line tokens (single + bundle)
-  static async getTotalLineTokens(sessionId: string, userWallet: string): Promise<number> {
-    const tokens = await this.getTokens(sessionId, userWallet)
-    if (!tokens) return 0
-    return tokens.line_tokens + tokens.bundle_tokens
   }
 }

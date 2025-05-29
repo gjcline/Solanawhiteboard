@@ -3,13 +3,12 @@
 import { useState, useEffect } from "react"
 
 interface UserTokens {
-  line_tokens: number
-  bundle_tokens: number
-  nuke_tokens: number
+  lines: number
+  nukes: number
 }
 
 export function useUserTokens(sessionId: string, walletAddress: string | null) {
-  const [tokens, setTokens] = useState<UserTokens>({ line_tokens: 0, bundle_tokens: 0, nuke_tokens: 0 })
+  const [tokens, setTokens] = useState<UserTokens>({ lines: 0, nukes: 0 })
   const [loading, setLoading] = useState(false)
 
   const fetchTokens = async () => {
@@ -24,7 +23,14 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
       if (response.ok) {
         const data = await response.json()
         console.log("📊 Fetched tokens:", data.tokens)
-        setTokens(data.tokens || { line_tokens: 0, bundle_tokens: 0, nuke_tokens: 0 })
+
+        // Map the API response to our interface
+        const mappedTokens = {
+          lines: (data.tokens?.line_tokens || 0) + (data.tokens?.bundle_tokens || 0),
+          nukes: data.tokens?.nuke_tokens || 0,
+        }
+
+        setTokens(mappedTokens)
       } else {
         console.error("❌ Failed to fetch tokens:", response.status, response.statusText)
       }
@@ -115,13 +121,8 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
         const data = await response.json()
         console.log("✅ Purchase successful:", data)
 
-        // Update local token state
-        if (data.userTokens) {
-          setTokens(data.userTokens)
-        } else {
-          // Refresh tokens if not returned
-          await fetchTokens()
-        }
+        // Immediately refresh tokens from server
+        await fetchTokens()
         return true
       } else {
         const errorData = await response.json()

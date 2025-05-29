@@ -7,6 +7,19 @@ import {
   validateSufficientBalanceFlexible,
 } from "../solana-fees"
 import { createStreamerPayoutTransaction } from "../solana-transactions"
+import { query } from "@/lib/database"
+
+export interface EscrowRecord {
+  id?: number
+  session_id: string
+  user_wallet: string
+  total_tokens_purchased: number
+  total_amount_paid: number
+  escrow_wallet: string
+  purchase_type: string
+  created_at?: Date
+  status?: string
+}
 
 export interface TokenEscrow {
   id: string
@@ -38,31 +51,55 @@ export interface PendingRelease {
 }
 
 export class EscrowService {
-  // Create escrow record with purchase type tracking
-  static async createEscrow(data: {
-    session_id: string
-    user_wallet: string
-    total_tokens_purchased: number
-    total_amount_paid: number
-    escrow_wallet: string
-    purchase_type: "single" | "bundle" | "nuke"
-  }): Promise<TokenEscrow> {
-    const id = Math.random().toString(36).substring(2, 14)
+  static async createEscrow(escrowData: EscrowRecord): Promise<EscrowRecord> {
+    try {
+      console.log("🏦 Creating escrow:", escrowData)
 
-    const result = await sql`
-      INSERT INTO token_escrows (
-        id, session_id, user_wallet, total_tokens_purchased, 
-        tokens_used, tokens_remaining, total_amount_paid, 
-        amount_released, fees_deducted, escrow_wallet, purchase_type, status
+      const result = await query(
+        `INSERT INTO escrow_transactions 
+         (session_id, user_wallet, total_tokens_purchased, total_amount_paid, escrow_wallet, purchase_type, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+         RETURNING *`,
+        [
+          escrowData.session_id,
+          escrowData.user_wallet,
+          escrowData.total_tokens_purchased,
+          escrowData.total_amount_paid,
+          escrowData.escrow_wallet,
+          escrowData.purchase_type,
+        ],
       )
-      VALUES (
-        ${id}, ${data.session_id}, ${data.user_wallet}, ${data.total_tokens_purchased},
-        0, ${data.total_tokens_purchased}, ${data.total_amount_paid},
-        0, 0, ${data.escrow_wallet}, ${data.purchase_type}, 'active'
-      )
-      RETURNING *
-    `
-    return result[0]
+
+      console.log("✅ Escrow created:", result.rows[0])
+      return result.rows[0]
+    } catch (error) {
+      console.error("❌ Error creating escrow:", error)
+      throw error
+    }
+  }
+
+  static async getEscrowsBySession(sessionId: string): Promise<EscrowRecord[]> {
+    try {
+      const result = await query(`SELECT * FROM escrow_transactions WHERE session_id = $1 ORDER BY created_at DESC`, [
+        sessionId,
+      ])
+
+      return result.rows
+    } catch (error) {
+      console.error("❌ Error getting escrows:", error)
+      return []
+    }
+  }
+
+  static async updateEscrowStatus(escrowId: number, status: string): Promise<boolean> {
+    try {
+      await query(`UPDATE escrow_transactions SET status = $1 WHERE id = $2`, [status, escrowId])
+
+      return true
+    } catch (error) {
+      console.error("❌ Error updating escrow status:", error)
+      return false
+    }
   }
 
   // Queue token usage with flexible fee estimation
