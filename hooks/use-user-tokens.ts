@@ -12,7 +12,10 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
   const [loading, setLoading] = useState(false)
 
   const fetchTokens = async () => {
-    if (!sessionId || !walletAddress) return
+    if (!sessionId || !walletAddress) {
+      setTokens({ lines: 0, nukes: 0 })
+      return
+    }
 
     try {
       setLoading(true)
@@ -24,7 +27,7 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
         const data = await response.json()
         console.log("📊 Fetched tokens:", data.tokens)
 
-        // Map the API response to our interface
+        // Map the API response to our interface with proper fallbacks
         const mappedTokens = {
           lines: (data.tokens?.line_tokens || 0) + (data.tokens?.bundle_tokens || 0),
           nukes: data.tokens?.nuke_tokens || 0,
@@ -33,9 +36,13 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
         setTokens(mappedTokens)
       } else {
         console.error("❌ Failed to fetch tokens:", response.status, response.statusText)
+        // Set default values on error
+        setTokens({ lines: 0, nukes: 0 })
       }
     } catch (error) {
       console.error("❌ Error fetching tokens:", error)
+      // Set default values on error
+      setTokens({ lines: 0, nukes: 0 })
     } finally {
       setLoading(false)
     }
@@ -66,7 +73,11 @@ export function useUserTokens(sessionId: string, walletAddress: string | null) {
 
         // Update local token state
         if (data.tokens) {
-          setTokens(data.tokens)
+          const mappedTokens = {
+            lines: (data.tokens.line_tokens || 0) + (data.tokens.bundle_tokens || 0),
+            nukes: data.tokens.nuke_tokens || 0,
+          }
+          setTokens(mappedTokens)
         } else {
           // Refresh tokens if not returned
           await fetchTokens()

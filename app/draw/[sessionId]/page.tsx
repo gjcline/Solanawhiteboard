@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -28,14 +28,34 @@ export default function DrawPage() {
   const [sessionData, setSessionData] = useState<any>(null)
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [walletBalance, setWalletBalance] = useState(0)
-  const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
   const [sessionDeleted, setSessionDeleted] = useState(false)
-  const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
   const [tokenToUse, setTokenToUse] = useState<"line" | "nuke" | null>(null)
+
+  // Initialize user tokens hook with proper error handling
+  const { tokens, useToken, addTokens, loading: tokensLoading } = useUserTokens(sessionId, walletAddress)
+
+  const handleTokenUsage = useCallback(async () => {
+    if (tokenToUse && useToken) {
+      try {
+        await useToken(tokenToUse)
+        setTokenToUse(null)
+      } catch (error) {
+        console.error("Error using token:", error)
+        setTokenToUse(null)
+      }
+    }
+  }, [tokenToUse, useToken])
+
+  useEffect(() => {
+    handleTokenUsage()
+  }, [handleTokenUsage])
 
   // Validate session exists
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId) {
+      setIsLoading(false)
+      return
+    }
 
     const validateSession = async () => {
       console.log("Validating session:", sessionId)
@@ -44,19 +64,25 @@ export default function DrawPage() {
         const response = await fetch(`/api/sessions/${sessionId}`)
         if (response.ok) {
           const data = await response.json()
+          console.log("Session validation response:", data)
+
           if (data.session && data.session.streamer_wallet && data.session.is_active) {
             setSessionExists(true)
             setSessionData(data.session)
-            setIsLoading(false)
-            return
+          } else {
+            console.log("Session validation failed - missing data or inactive")
+            setSessionExists(false)
           }
+        } else {
+          console.log("Session validation failed - HTTP error:", response.status)
+          setSessionExists(false)
         }
       } catch (error) {
         console.log("Session API check failed:", error)
+        setSessionExists(false)
+      } finally {
+        setIsLoading(false)
       }
-
-      setSessionExists(false)
-      setIsLoading(false)
     }
 
     validateSession()
@@ -67,9 +93,13 @@ export default function DrawPage() {
     if (!sessionId) return
 
     const checkSessionStatus = () => {
-      const deletedData = localStorage.getItem(`session-deleted-${sessionId}`)
-      if (deletedData) {
-        setSessionDeleted(true)
+      try {
+        const deletedData = localStorage.getItem(`session-deleted-${sessionId}`)
+        if (deletedData) {
+          setSessionDeleted(true)
+        }
+      } catch (error) {
+        console.error("Error checking session status:", error)
       }
     }
 
@@ -79,21 +109,33 @@ export default function DrawPage() {
   }, [sessionId])
 
   const handleWalletConnected = (address: string, balance: number) => {
-    setWalletAddress(address)
-    setWalletBalance(balance)
-    toast({
-      title: "wallet connected!",
-      description: "you can now purchase tokens and start drawing.",
-    })
+    try {
+      setWalletAddress(address)
+      setWalletBalance(balance)
+      toast({
+        title: "wallet connected!",
+        description: "you can now purchase tokens and start drawing.",
+      })
+    } catch (error) {
+      console.error("Error handling wallet connection:", error)
+    }
   }
 
   const handleWalletDisconnected = () => {
-    setWalletAddress(null)
-    setWalletBalance(0)
+    try {
+      setWalletAddress(null)
+      setWalletBalance(0)
+    } catch (error) {
+      console.error("Error handling wallet disconnection:", error)
+    }
   }
 
   const handleBalanceUpdate = (balance: number) => {
-    setWalletBalance(balance)
+    try {
+      setWalletBalance(balance)
+    } catch (error) {
+      console.error("Error updating balance:", error)
+    }
   }
 
   const handlePurchaseSuccess = async (type: string, quantity: number) => {
@@ -111,21 +153,24 @@ export default function DrawPage() {
       }
     } catch (error) {
       console.error("Error in handlePurchaseSuccess:", error)
+      toast({
+        title: "purchase error",
+        description: "failed to process token purchase. please try again.",
+        variant: "destructive",
+      })
       return false
     }
   }
 
   const handleTokenUsed = (tokenType: "line" | "nuke") => {
-    setTokenToUse(tokenType)
+    try {
+      setTokenToUse(tokenType)
+    } catch (error) {
+      console.error("Error handling token usage:", error)
+    }
   }
 
-  useEffect(() => {
-    if (tokenToUse) {
-      useToken(tokenToUse)
-      setTokenToUse(null)
-    }
-  }, [tokenToUse, useToken])
-
+  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -137,6 +182,7 @@ export default function DrawPage() {
     )
   }
 
+  // Session not found
   if (!sessionExists) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
@@ -160,6 +206,7 @@ export default function DrawPage() {
     )
   }
 
+  // Session deleted
   if (sessionDeleted) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4">
@@ -180,6 +227,7 @@ export default function DrawPage() {
     )
   }
 
+  // Main render
   return (
     <div className="min-h-screen bg-gray-900 relative">
       <DrawingBackground density={10} speed={0.2} />
@@ -282,7 +330,7 @@ export default function DrawPage() {
         </div>
 
         {/* Purchase Options Section */}
-        {walletAddress && (
+        {walletAddress && !sessionDeleted && (
           <div className="mb-6">
             <Card className="pump-card border-gray-700 bg-gray-800/50">
               <CardHeader className="pb-3">
@@ -305,7 +353,7 @@ export default function DrawPage() {
         )}
 
         {/* Token Balance Display - Right Above Whiteboard */}
-        {walletAddress && (
+        {walletAddress && tokens && (
           <div className="mb-4">
             <div className="flex items-center justify-center gap-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
               <div className="text-center">
@@ -341,7 +389,7 @@ export default function DrawPage() {
                 isReadOnly={false}
                 sessionId={sessionId}
                 walletAddress={walletAddress}
-                userTokens={tokens}
+                userTokens={tokens || { lines: 0, nukes: 0 }}
                 onTokenUsed={handleTokenUsed}
               />
             </div>
