@@ -44,34 +44,66 @@ export class UserTokenService {
     try {
       console.log("💰 Adding tokens:", { sessionId, userWallet, tokenType, quantity })
 
-      // Use a single query that handles all token types
-      if (tokenType === "bundle") {
-        await sql`
-          INSERT INTO user_tokens (session_id, user_wallet, bundle_tokens) 
-          VALUES (${sessionId}, ${userWallet}, ${quantity})
-          ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET 
-            bundle_tokens = user_tokens.bundle_tokens + ${quantity},
-            updated_at = CURRENT_TIMESTAMP
-        `
+      // First check if the record exists
+      const existingRecord = await sql`
+        SELECT * FROM user_tokens 
+        WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+      `
+
+      // Determine which column to update based on token type
+      let lineTokens = 0
+      let bundleTokens = 0
+      let nukeTokens = 0
+
+      if (tokenType === "line") {
+        lineTokens = quantity
+      } else if (tokenType === "bundle") {
+        bundleTokens = quantity
       } else if (tokenType === "nuke") {
-        await sql`
-          INSERT INTO user_tokens (session_id, user_wallet, nuke_tokens) 
-          VALUES (${sessionId}, ${userWallet}, ${quantity})
-          ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET 
-            nuke_tokens = user_tokens.nuke_tokens + ${quantity},
-            updated_at = CURRENT_TIMESTAMP
-        `
+        nukeTokens = quantity
+      }
+
+      if (Array.isArray(existingRecord) && existingRecord.length > 0) {
+        // Record exists, update it
+        console.log("📝 Updating existing token record")
+
+        if (tokenType === "line") {
+          await sql`
+            UPDATE user_tokens 
+            SET line_tokens = line_tokens + ${quantity}
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
+        } else if (tokenType === "bundle") {
+          await sql`
+            UPDATE user_tokens 
+            SET bundle_tokens = bundle_tokens + ${quantity}
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
+        } else if (tokenType === "nuke") {
+          await sql`
+            UPDATE user_tokens 
+            SET nuke_tokens = nuke_tokens + ${quantity}
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
+        }
       } else {
-        // Default to line tokens for "single" or any other type
+        // Record doesn't exist, insert it
+        console.log("📝 Creating new token record")
         await sql`
-          INSERT INTO user_tokens (session_id, user_wallet, line_tokens) 
-          VALUES (${sessionId}, ${userWallet}, ${quantity})
-          ON CONFLICT (session_id, user_wallet) 
-          DO UPDATE SET 
-            line_tokens = user_tokens.line_tokens + ${quantity},
-            updated_at = CURRENT_TIMESTAMP
+          INSERT INTO user_tokens (
+            session_id, 
+            user_wallet, 
+            line_tokens, 
+            bundle_tokens, 
+            nuke_tokens
+          ) 
+          VALUES (
+            ${sessionId}, 
+            ${userWallet}, 
+            ${lineTokens}, 
+            ${bundleTokens}, 
+            ${nukeTokens}
+          )
         `
       }
 
@@ -93,42 +125,43 @@ export class UserTokenService {
     try {
       console.log("🎯 Using token:", { sessionId, userWallet, tokenType })
 
+      // Get current tokens
+      const currentTokens = await this.getTokens(sessionId, userWallet)
+      if (!currentTokens) {
+        console.log("❌ No tokens record found")
+        return { success: false }
+      }
+
       // For line tokens, we can use either line_tokens or bundle_tokens
       if (tokenType === "line") {
         // Try to use bundle_tokens first, then line_tokens
-        const bundleResult = await sql`
-          UPDATE user_tokens 
-          SET bundle_tokens = bundle_tokens - 1, updated_at = CURRENT_TIMESTAMP
-          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND bundle_tokens > 0
-          RETURNING bundle_tokens
-        `
-
-        if (Array.isArray(bundleResult) && bundleResult.length > 0) {
+        if (currentTokens.bundle_tokens > 0) {
+          await sql`
+            UPDATE user_tokens 
+            SET bundle_tokens = bundle_tokens - 1
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
           console.log("✅ Used bundle token")
           return { success: true, tokenUsed: "bundle" }
         }
 
         // If no bundle tokens, try line tokens
-        const lineResult = await sql`
-          UPDATE user_tokens 
-          SET line_tokens = line_tokens - 1, updated_at = CURRENT_TIMESTAMP
-          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND line_tokens > 0
-          RETURNING line_tokens
-        `
-
-        if (Array.isArray(lineResult) && lineResult.length > 0) {
+        if (currentTokens.line_tokens > 0) {
+          await sql`
+            UPDATE user_tokens 
+            SET line_tokens = line_tokens - 1
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
           console.log("✅ Used line token")
           return { success: true, tokenUsed: "line" }
         }
       } else if (tokenType === "nuke") {
-        const result = await sql`
-          UPDATE user_tokens 
-          SET nuke_tokens = nuke_tokens - 1, updated_at = CURRENT_TIMESTAMP
-          WHERE session_id = ${sessionId} AND user_wallet = ${userWallet} AND nuke_tokens > 0
-          RETURNING nuke_tokens
-        `
-
-        if (Array.isArray(result) && result.length > 0) {
+        if (currentTokens.nuke_tokens > 0) {
+          await sql`
+            UPDATE user_tokens 
+            SET nuke_tokens = nuke_tokens - 1
+            WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
+          `
           console.log("✅ Used nuke token")
           return { success: true, tokenUsed: "nuke" }
         }
