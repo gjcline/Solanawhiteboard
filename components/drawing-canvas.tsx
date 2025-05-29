@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Progress } from "@/components/ui/progress"
-import { Paintbrush, AlertCircle, Bomb, Timer, Trash2 } from "lucide-react"
+import { Paintbrush, AlertCircle, Bomb, Timer, Trash2, Wifi, WifiOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
 // How often to sync the canvas (in milliseconds)
-const SYNC_INTERVAL = 1000
+const SYNC_INTERVAL = 2000
 
 interface UserTokens {
   lines: number
@@ -55,41 +55,91 @@ export default function DrawingCanvas({
   const lastPositionRef = useRef({ x: 0, y: 0 })
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastCanvasDataRef = useRef<string | null>(null)
+  const lastCanvasHashRef = useRef<string | null>(null)
+  const isInitializedRef = useRef(false)
   const { toast } = useToast()
+
+  // Add sync status for debugging
+  const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "syncing">("disconnected")
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
 
   // Add new props and state for session validation
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenValidated, setTokenValidated] = useState(false)
+
+  // Simple hash function for canvas data comparison
+  const hashCanvasData = (data: string): string => {
+    let hash = 0
+    for (let i = 0; i < data.length; i++) {
+      const char = data.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash // Convert to 32bit integer
+    }
+    return hash.toString()
+  }
 
   // Load canvas data from server
   const loadCanvasFromServer = useCallback(async () => {
     if (!sessionId || !canvasRef.current || !ctx) return
 
     try {
+      setSyncStatus("syncing")
+      console.log(`[Canvas] Loading canvas for session: ${sessionId}`)
+
       const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${Date.now()}`)
       if (response.ok) {
         const data = await response.json()
-        if (data.canvasData && data.canvasData !== lastCanvasDataRef.current) {
-          const img = new Image()
-          img.crossOrigin = "anonymous"
-          img.onload = () => {
-            if (ctx && canvasRef.current) {
-              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-              ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
-              lastCanvasDataRef.current = data.canvasData
+        console.log(`[Canvas] Server response:`, {
+          hasCanvasData: !!data.canvasData,
+          dataLength: data.canvasData?.length || 0,
+          lastUpdated: data.lastUpdated,
+        })
+
+        if (data.canvasData) {
+          const newHash = hashCanvasData(data.canvasData)
+          console.log(`[Canvas] Hash comparison:`, {
+            newHash,
+            lastHash: lastCanvasHashRef.current,
+            different: newHash !== lastCanvasHashRef.current,
+          })
+
+          if (newHash !== lastCanvasHashRef.current) {
+            console.log(`[Canvas] Loading new canvas data`)
+            const img = new Image()
+            img.crossOrigin = "anonymous"
+            img.onload = () => {
+              if (ctx && canvasRef.current) {
+                console.log(`[Canvas] Drawing image to canvas`)
+                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+                ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
+                lastCanvasHashRef.current = newHash
+                setSyncStatus("connected")
+                setLastSyncTime(new Date())
+              }
             }
+            img.onerror = (error) => {
+              console.error("[Canvas] Failed to load canvas image:", error)
+              setSyncStatus("disconnected")
+            }
+            img.src = data.canvasData
+          } else {
+            console.log(`[Canvas] Canvas data unchanged`)
+            setSyncStatus("connected")
+            setLastSyncTime(new Date())
           }
-          img.onerror = () => {
-            console.error("Failed to load canvas image from server")
-          }
-          img.src = data.canvasData
+        } else {
+          console.log(`[Canvas] No canvas data from server`)
+          setSyncStatus("connected")
+          setLastSyncTime(new Date())
         }
+      } else {
+        console.error(`[Canvas] Server error:`, response.status)
+        setSyncStatus("disconnected")
       }
     } catch (error) {
-      console.error("Error loading canvas from server:", error)
+      console.error("[Canvas] Error loading canvas from server:", error)
+      setSyncStatus("disconnected")
     }
   }, [sessionId, ctx])
 
@@ -98,10 +148,13 @@ export default function DrawingCanvas({
     if (!sessionId || !canvasRef.current || isReadOnly) return
 
     try {
+      console.log(`[Canvas] Saving canvas for session: ${sessionId}`)
       const dataUrl = canvasRef.current.toDataURL("image/png")
+      const newHash = hashCanvasData(dataUrl)
 
       // Only save if the canvas data has actually changed
-      if (dataUrl !== lastCanvasDataRef.current) {
+      if (newHash !== lastCanvasHashRef.current) {
+        console.log(`[Canvas] Canvas changed, saving to server`)
         const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
           method: "POST",
           headers: {
@@ -111,14 +164,21 @@ export default function DrawingCanvas({
         })
 
         if (response.ok) {
-          lastCanvasDataRef.current = dataUrl
-          console.log("Canvas saved to server successfully")
+          const result = await response.json()
+          console.log(`[Canvas] Save result:`, result)
+          lastCanvasHashRef.current = newHash
+          setSyncStatus("connected")
+          setLastSyncTime(new Date())
         } else {
-          console.error("Failed to save canvas to server")
+          console.error("[Canvas] Failed to save canvas to server:", response.status)
+          setSyncStatus("disconnected")
         }
+      } else {
+        console.log(`[Canvas] Canvas unchanged, skipping save`)
       }
     } catch (error) {
-      console.error("Error saving canvas to server:", error)
+      console.error("[Canvas] Error saving canvas to server:", error)
+      setSyncStatus("disconnected")
     }
   }, [sessionId, isReadOnly])
 
@@ -129,8 +189,7 @@ export default function DrawingCanvas({
     if (!canvas || !container) return
 
     const updateCanvasSize = async () => {
-      // Store current drawing before resizing
-      const currentImageData = ctx ? ctx.getImageData(0, 0, canvas.width, canvas.height) : null
+      console.log(`[Canvas] Updating canvas size`)
 
       // Get container dimensions
       const containerRect = container.getBoundingClientRect()
@@ -150,22 +209,14 @@ export default function DrawingCanvas({
         context.lineWidth = brushSize[0]
         setCtx(context)
 
-        // Restore previous drawing if it exists
-        if (currentImageData) {
-          // Scale the previous drawing to fit new canvas size
-          const tempCanvas = document.createElement("canvas")
-          const tempCtx = tempCanvas.getContext("2d")
-          if (tempCtx) {
-            tempCanvas.width = currentImageData.width
-            tempCanvas.height = currentImageData.height
-            tempCtx.putImageData(currentImageData, 0, 0)
-
-            // Draw scaled image to new canvas
-            context.drawImage(tempCanvas, 0, 0, newWidth, newHeight)
-          }
-        } else {
-          // Load from server if no current image
-          await loadCanvasFromServer()
+        // Load from server after canvas is ready
+        if (!isInitializedRef.current) {
+          console.log(`[Canvas] Initial canvas setup, loading from server`)
+          isInitializedRef.current = true
+          // Small delay to ensure canvas is fully ready
+          setTimeout(() => {
+            loadCanvasFromServer()
+          }, 100)
         }
       }
     }
@@ -180,7 +231,6 @@ export default function DrawingCanvas({
 
     // Handle fullscreen changes
     const handleFullscreenChange = () => {
-      // Small delay to ensure DOM has updated
       setTimeout(updateCanvasSize, 100)
     }
 
@@ -195,16 +245,17 @@ export default function DrawingCanvas({
 
   // Set up real-time canvas sync for read-only views
   useEffect(() => {
-    if (isReadOnly && sessionId && ctx) {
-      // Initial load
-      loadCanvasFromServer()
+    if (isReadOnly && sessionId && ctx && isInitializedRef.current) {
+      console.log(`[Canvas] Setting up sync timer for read-only view`)
 
       // Set up periodic sync
       syncTimerRef.current = setInterval(() => {
+        console.log(`[Canvas] Sync timer tick`)
         loadCanvasFromServer()
       }, SYNC_INTERVAL)
 
       return () => {
+        console.log(`[Canvas] Cleaning up sync timer`)
         if (syncTimerRef.current) {
           clearInterval(syncTimerRef.current)
         }
@@ -217,8 +268,6 @@ export default function DrawingCanvas({
     if (isReadOnly && sessionId) {
       const checkForNuke = setInterval(async () => {
         try {
-          // In a real implementation, you'd have a nuke effects API
-          // For now, we'll use localStorage as a bridge
           const nukeData = localStorage.getItem(`whiteboard-nuke-${sessionId}`)
           if (nukeData) {
             const nuke = JSON.parse(nukeData)
@@ -392,7 +441,6 @@ export default function DrawingCanvas({
     }
 
     // STRICT TOKEN VALIDATION - Check both client and server
-    // For client-side, check if user has line tokens or bundle tokens
     const clientHasTokens =
       userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
     if (!clientHasTokens) {
@@ -410,6 +458,7 @@ export default function DrawingCanvas({
       return
     }
 
+    console.log(`[Canvas] Starting drawing`)
     setIsDrawing(true)
     setDrawingStartTime(Date.now())
     setTimeLeft(DRAWING_TIME_LIMIT)
@@ -420,9 +469,7 @@ export default function DrawingCanvas({
         const newTime = prev - 100
         if (newTime <= 0) {
           // Force stop drawing when time is up
-          if (isDrawing) {
-            stopDrawing(true)
-          }
+          stopDrawing(true)
           return 0
         }
         return newTime
@@ -459,6 +506,7 @@ export default function DrawingCanvas({
     // Only proceed if we were actually drawing and tokens were validated
     if (!isDrawing || !tokenValidated) return
 
+    console.log(`[Canvas] Stopping drawing, saving to server`)
     setIsDrawing(false)
     setDrawingStartTime(null)
     setTimeLeft(DRAWING_TIME_LIMIT)
@@ -561,12 +609,13 @@ export default function DrawingCanvas({
     if (!isValid) {
       toast({
         title: "nuke validation failed",
-        description: "unable to verify nuke tokens on server.",
+        description: "unable toverify nuke tokens on server.",
         variant: "destructive",
       })
       return
     }
 
+    console.log(`[Canvas] Nuking board`)
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
@@ -600,13 +649,11 @@ export default function DrawingCanvas({
     return () => {
       if (drawingTimerRef.current) clearInterval(drawingTimerRef.current)
       if (nukeTimerRef.current) clearTimeout(nukeTimerRef.current)
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
       if (syncTimerRef.current) clearInterval(syncTimerRef.current)
     }
   }, [])
 
   // Strict validation for drawing permissions
-  // Check if user has line tokens or bundle tokens
   const hasLineTokens =
     userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
   const canDraw = walletAddress && hasLineTokens && !sessionDeleted && !isDrawing
@@ -614,6 +661,22 @@ export default function DrawingCanvas({
 
   return (
     <div className="flex flex-col relative h-full">
+      {/* Sync Status Indicator - Only show in read-only mode */}
+      {isReadOnly && (
+        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
+          {syncStatus === "connected" && <Wifi className="h-3 w-3 text-green-400" />}
+          {syncStatus === "disconnected" && <WifiOff className="h-3 w-3 text-red-400" />}
+          {syncStatus === "syncing" && (
+            <div className="h-3 w-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" />
+          )}
+          <span className="text-gray-300">
+            {syncStatus === "connected" && lastSyncTime && `synced ${lastSyncTime.toLocaleTimeString()}`}
+            {syncStatus === "disconnected" && "disconnected"}
+            {syncStatus === "syncing" && "syncing..."}
+          </span>
+        </div>
+      )}
+
       {/* Nuke Effect Overlay */}
       {nukeEffect.isActive && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-red-500/20 backdrop-blur-sm">
@@ -740,11 +803,13 @@ export default function DrawingCanvas({
         />
       </div>
 
-      {/* Only show this text in non-fullscreen read-only mode */}
+      {/* Debug info for read-only mode */}
       {isReadOnly && !isFullscreen && (
         <div className="mt-4 text-center text-sm text-gray-500">
-          this canvas syncs every {SYNC_INTERVAL / 1000} second{SYNC_INTERVAL !== 1000 ? "s" : ""} with the database.
-          drawings from viewers appear here automatically.
+          <div>canvas syncs every {SYNC_INTERVAL / 1000} seconds with the database.</div>
+          <div className="text-xs text-gray-600 mt-1">
+            status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"}
+          </div>
         </div>
       )}
     </div>
