@@ -1,4 +1,4 @@
-import { sql } from "../database"
+import { sql } from "../database" // Assuming this is the Vercel Postgres `sql`
 import { getTokenValue, DEVCAVE_WALLET } from "../pricing"
 import {
   calculateTransactionFeesWithTolerance,
@@ -7,7 +7,7 @@ import {
   validateSufficientBalanceFlexible,
 } from "../solana-fees"
 import { createStreamerPayoutTransaction } from "../solana-transactions"
-import { query } from "@/lib/database"
+// Removed 'query' import as we'll use 'sql' from Vercel Postgres directly
 
 export interface EscrowRecord {
   id?: number
@@ -55,9 +55,8 @@ export class EscrowService {
     try {
       console.log("🏦 Creating escrow:", escrowData)
 
-      // First, ensure the table exists
-      await query(
-        `
+      // First, ensure the table exists using tagged template literal for DDL
+      await sql`
         CREATE TABLE IF NOT EXISTS escrow_transactions (
           id SERIAL PRIMARY KEY,
           session_id VARCHAR(255) NOT NULL,
@@ -70,12 +69,10 @@ export class EscrowService {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
-      `,
-        [],
-      )
+      `
 
-      // Now insert the record
-      const result = await query(
+      // Now insert the record using sql.query for parameterized query
+      const result = await sql.query(
         `INSERT INTO escrow_transactions 
          (session_id, user_wallet, total_tokens_purchased, total_amount_paid, escrow_wallet, purchase_type, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')
@@ -90,39 +87,24 @@ export class EscrowService {
         ],
       )
 
-      // Safely handle the result
       if (!result || !result.rows || result.rows.length === 0) {
-        console.log("⚠️ No rows returned from insert, creating fallback record")
-        // Return the original data with a generated ID as fallback
-        return {
-          ...escrowData,
-          id: Date.now(),
-          status: "pending",
-          created_at: new Date(),
-        }
+        console.error("⚠️ No rows returned from insert operation for escrowData:", escrowData)
+        throw new Error("Failed to create escrow record: No data returned after insert.")
       }
 
       console.log("✅ Escrow created:", result.rows[0])
       return result.rows[0]
     } catch (error) {
       console.error("❌ Error creating escrow:", error)
-
-      // Return a fallback record instead of throwing
-      console.log("⚠️ Using fallback record due to error")
-      return {
-        ...escrowData,
-        id: Date.now(),
-        status: "pending",
-        created_at: new Date(),
-      }
+      // Re-throw the error so the calling function knows it failed
+      throw error
     }
   }
 
   static async getEscrowsBySession(sessionId: string): Promise<EscrowRecord[]> {
     try {
       // Ensure table exists first
-      await query(
-        `
+      await sql`
         CREATE TABLE IF NOT EXISTS escrow_transactions (
           id SERIAL PRIMARY KEY,
           session_id VARCHAR(255) NOT NULL,
@@ -135,25 +117,24 @@ export class EscrowService {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
-      `,
-        [],
+      `
+      // Use sql.query for parameterized query
+      const result = await sql.query(
+        `SELECT * FROM escrow_transactions WHERE session_id = $1 ORDER BY created_at DESC`,
+        [sessionId],
       )
-
-      const result = await query(`SELECT * FROM escrow_transactions WHERE session_id = $1 ORDER BY created_at DESC`, [
-        sessionId,
-      ])
 
       return result?.rows || []
     } catch (error) {
-      console.error("❌ Error getting escrows:", error)
-      return []
+      console.error("❌ Error getting escrows by session:", error)
+      return [] // Return empty array on error as before
     }
   }
 
   static async updateEscrowStatus(escrowId: number, status: string): Promise<boolean> {
     try {
-      await query(`UPDATE escrow_transactions SET status = $1 WHERE id = $2`, [status, escrowId])
-
+      // Use sql.query for parameterized query
+      await sql.query(`UPDATE escrow_transactions SET status = $1 WHERE id = $2`, [status, escrowId])
       return true
     } catch (error) {
       console.error("❌ Error updating escrow status:", error)
@@ -169,12 +150,13 @@ export class EscrowService {
     tokenUsed: "single" | "bundle" | "nuke",
   ): Promise<void> {
     // Get escrow details
-    const escrow = await sql`
+    const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
     `
+    const escrow = escrowResult.rows[0]
 
-    if (!escrow[0] || escrow[0].tokens_remaining <= 0) {
-      throw new Error("No tokens available")
+    if (!escrow || escrow.tokens_remaining <= 0) {
+      throw new Error("No tokens available or escrow not found")
     }
 
     // Use the correct token value for payout (not purchase price)
@@ -222,7 +204,7 @@ export class EscrowService {
   // Process batched releases with flexible fee handling
   static async processPendingReleases(): Promise<void> {
     // Get all pending releases grouped by session
-    const pendingBySession = await sql`
+    const pendingBySessionResult = await sql`
       SELECT 
         session_id,
         user_wallet,
@@ -237,15 +219,17 @@ export class EscrowService {
       GROUP BY session_id, user_wallet
       HAVING COUNT(*) >= 3 OR MIN(created_at) < NOW() - INTERVAL '2 minutes'
     `
+    const pendingBySession = pendingBySessionResult.rows
 
     for (const batch of pendingBySession) {
       try {
         // Get session wallet
-        const session = await sql`
+        const sessionResult = await sql`
           SELECT streamer_wallet FROM sessions WHERE session_id = ${batch.session_id}
         `
+        const session = sessionResult.rows[0]
 
-        if (!session[0]) continue
+        if (!session) continue
 
         // Validate sufficient balance with tolerance
         const totalAmount = batch.total_streamer + batch.total_devcave
@@ -257,7 +241,7 @@ export class EscrowService {
         // Execute transaction and get actual fee
         const { signature, actualFee } = await this.executeBatchedReleaseFlexible({
           sessionId: batch.session_id,
-          streamerWallet: session[0].streamer_wallet,
+          streamerWallet: session.streamer_wallet,
           streamerAmount: batch.total_streamer,
           devcaveAmount: batch.total_devcave,
           estimatedFees: batch.total_estimated_fees,
@@ -366,27 +350,28 @@ export class EscrowService {
       ORDER BY created_at DESC
       LIMIT 1
     `
-    return result[0] || null
+    return result.rows[0] || null
   }
 
   // Process refund (fees already deducted from released amounts)
   static async processRefund(escrowId: string): Promise<number> {
-    const escrow = await sql`
+    const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
     `
+    const escrow = escrowResult.rows[0]
 
-    if (!escrow[0] || escrow[0].tokens_remaining <= 0) {
+    if (!escrow || escrow.tokens_remaining <= 0) {
       return 0
     }
 
-    const pricePerToken = escrow[0].total_amount_paid / escrow[0].total_tokens_purchased
-    const refundAmount = escrow[0].tokens_remaining * pricePerToken
+    const pricePerToken = escrow.total_amount_paid / escrow.total_tokens_purchased
+    const refundAmount = escrow.tokens_remaining * pricePerToken
 
     // Execute refund transaction from DevCave wallet back to user
     console.log("💰 Processing refund:", {
-      user: escrow[0].user_wallet,
+      user: escrow.user_wallet,
       amount: refundAmount,
-      tokens: escrow[0].tokens_remaining,
+      tokens: escrow.tokens_remaining,
     })
 
     // Update escrow status
