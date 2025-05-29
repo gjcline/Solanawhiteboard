@@ -17,7 +17,7 @@ export class UserTokenService {
         WHERE session_id = ${sessionId} AND user_wallet = ${userWallet}
       `
 
-      if (result.length === 0) {
+      if (!Array.isArray(result) || result.length === 0) {
         console.log("📊 No tokens found, returning defaults")
         return {
           line_tokens: 0,
@@ -52,13 +52,29 @@ export class UserTokenService {
         columnToUpdate = "nuke_tokens"
       }
 
-      // Insert or update tokens
-      await sql`
-        INSERT INTO user_tokens (session_id, user_wallet, ${sql(columnToUpdate)}) 
-        VALUES (${sessionId}, ${userWallet}, ${quantity})
-        ON CONFLICT (session_id, user_wallet) 
-        DO UPDATE SET ${sql(columnToUpdate)} = user_tokens.${sql(columnToUpdate)} + ${quantity}
-      `
+      // Insert or update tokens using tagged template literal
+      if (columnToUpdate === "line_tokens") {
+        await sql`
+          INSERT INTO user_tokens (session_id, user_wallet, line_tokens) 
+          VALUES (${sessionId}, ${userWallet}, ${quantity})
+          ON CONFLICT (session_id, user_wallet) 
+          DO UPDATE SET line_tokens = user_tokens.line_tokens + ${quantity}
+        `
+      } else if (columnToUpdate === "bundle_tokens") {
+        await sql`
+          INSERT INTO user_tokens (session_id, user_wallet, bundle_tokens) 
+          VALUES (${sessionId}, ${userWallet}, ${quantity})
+          ON CONFLICT (session_id, user_wallet) 
+          DO UPDATE SET bundle_tokens = user_tokens.bundle_tokens + ${quantity}
+        `
+      } else if (columnToUpdate === "nuke_tokens") {
+        await sql`
+          INSERT INTO user_tokens (session_id, user_wallet, nuke_tokens) 
+          VALUES (${sessionId}, ${userWallet}, ${quantity})
+          ON CONFLICT (session_id, user_wallet) 
+          DO UPDATE SET nuke_tokens = user_tokens.nuke_tokens + ${quantity}
+        `
+      }
 
       console.log("✅ Tokens added successfully")
 
@@ -88,7 +104,7 @@ export class UserTokenService {
           RETURNING bundle_tokens
         `
 
-        if (bundleResult.length > 0) {
+        if (Array.isArray(bundleResult) && bundleResult.length > 0) {
           console.log("✅ Used bundle token")
           return { success: true, tokenUsed: "bundle" }
         }
@@ -101,7 +117,7 @@ export class UserTokenService {
           RETURNING line_tokens
         `
 
-        if (lineResult.length > 0) {
+        if (Array.isArray(lineResult) && lineResult.length > 0) {
           console.log("✅ Used line token")
           return { success: true, tokenUsed: "line" }
         }
@@ -113,7 +129,7 @@ export class UserTokenService {
           RETURNING nuke_tokens
         `
 
-        if (result.length > 0) {
+        if (Array.isArray(result) && result.length > 0) {
           console.log("✅ Used nuke token")
           return { success: true, tokenUsed: "nuke" }
         }
