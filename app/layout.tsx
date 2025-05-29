@@ -7,13 +7,14 @@ import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from "@/components/auth-provider"
 import Navigation from "@/components/navigation"
 import AnimatedCursor from "@/components/animated-cursor"
+import { WalletProvider } from "@/components/wallet-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Solana Whiteboard for Streamers",
   description: "Interactive whiteboard for streamers with Solana payments",
-    generator: 'v0.dev'
+  generator: "v0.dev",
 }
 
 export default function RootLayout({
@@ -25,14 +26,16 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <div className="min-h-screen flex flex-col">
-              <Navigation />
-              <main className="flex-1 w-full">{children}</main>
-            </div>
-            <Toaster />
-            <AnimatedCursor />
-          </AuthProvider>
+          <WalletProvider>
+            <AuthProvider>
+              <div className="min-h-screen flex flex-col">
+                <Navigation />
+                <main className="flex-1 w-full">{children}</main>
+              </div>
+              <Toaster />
+              <AnimatedCursor />
+            </AuthProvider>
+          </WalletProvider>
         </ThemeProvider>
       </body>
     </html>
