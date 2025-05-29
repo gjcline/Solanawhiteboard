@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -32,6 +32,13 @@ export default function DrawPage() {
   const { tokens, useToken, addTokens } = useUserTokens(sessionId, walletAddress)
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenTypeUsed, setTokenTypeUsed] = useState<"line" | "nuke" | null>(null)
+
+  // const useTheToken = useCallback(
+  //   (tokenType: "line" | "nuke") => {
+  //     useToken(tokenType)
+  //   },
+  //   [useToken],
+  // )
 
   // Validate session exists
   useEffect(() => {
@@ -107,21 +114,15 @@ export default function DrawPage() {
 
   const handleTokenUsed = (tokenType: "line" | "nuke") => {
     setTokenTypeUsed(tokenType)
+    useToken(tokenType)
   }
 
-  const useTheToken = useCallback(
-    (tokenType: "line" | "nuke") => {
-      useToken(tokenType)
-    },
-    [useToken],
-  )
-
-  useEffect(() => {
-    if (tokenTypeUsed) {
-      useTheToken(tokenTypeUsed)
-      setTokenTypeUsed(null)
-    }
-  }, [tokenTypeUsed, useTheToken])
+  // useEffect(() => {
+  //   if (tokenTypeUsed) {
+  //     useTheToken(tokenTypeUsed)
+  //     setTokenTypeUsed(null)
+  //   }
+  // }, [tokenTypeUsed, useTheToken])
 
   const openViewPage = () => {
     window.open(`/view/${sessionId}`, "_blank")
@@ -220,99 +221,138 @@ export default function DrawPage() {
       </div>
 
       <div className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
-          {/* Left Sidebar - Wallet & Purchase */}
-          <div className="xl:col-span-1 space-y-4 xl:max-h-full xl:overflow-y-auto">
-            {/* Wallet Connection */}
+        {/* Wallet Connection & Token Info Section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* Wallet Connection */}
+          <Card className="pump-card border-gray-700 bg-gray-800/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-base flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-[#00ff88]" />
+                phantom wallet
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <WalletConnection
+                onWalletConnected={handleWalletConnected}
+                onWalletDisconnected={handleWalletDisconnected}
+                onBalanceUpdate={handleBalanceUpdate}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Token Pricing */}
+          <Card className="pump-card border-gray-700 bg-gray-800/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-base flex items-center gap-2">
+                <Zap className="h-4 w-4 text-[#00ff88]" />
+                token prices
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="text-center p-2 bg-gray-700/50 rounded">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Timer className="h-3 w-3 text-[#00ff88]" />
+                    <span className="text-white">line</span>
+                  </div>
+                  <div className="text-[#00ff88] font-bold">0.005 SOL</div>
+                </div>
+                <div className="text-center p-2 bg-gray-700/50 rounded border border-[#00ff88]/30">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <DollarSign className="h-3 w-3 text-[#00ff88]" />
+                    <span className="text-white">10-pack</span>
+                  </div>
+                  <div className="text-[#00ff88] font-bold">0.02 SOL</div>
+                </div>
+                <div className="text-center p-2 bg-gray-700/50 rounded border border-red-500/30">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Bomb className="h-3 w-3 text-red-400" />
+                    <span className="text-white">nuke</span>
+                  </div>
+                  <div className="text-red-400 font-bold">0.03 SOL</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Revenue Split Info */}
+          <Card className="pump-card border-gray-700 bg-gray-800/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-base flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-[#00ff88]" />
+                revenue split
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">streamer:</span>
+                  <span className="text-[#00ff88] font-semibold">50%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">d3vcav3:</span>
+                  <span className="text-[#00ff88] font-semibold">50%</span>
+                </div>
+                <div className="text-center text-gray-500 text-xs mt-2">funds held in escrow until tokens are used</div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Purchase Options Section */}
+        {walletAddress && (
+          <div className="mb-6">
             <Card className="pump-card border-gray-700 bg-gray-800/50">
               <CardHeader className="pb-3">
-                <CardTitle className="text-white text-lg flex items-center gap-2">
-                  <Wallet className="h-5 w-5 text-[#00ff88]" />
-                  phantom wallet
-                </CardTitle>
+                <CardTitle className="text-white text-base">purchase tokens</CardTitle>
+                <CardDescription className="text-gray-400 text-sm">
+                  buy tokens to interact with the whiteboard
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <WalletConnection
-                  onWalletConnected={handleWalletConnected}
-                  onWalletDisconnected={handleWalletDisconnected}
+                <PurchaseOptions
+                  sessionId={sessionId}
+                  walletAddress={walletAddress}
+                  walletBalance={walletBalance}
+                  onPurchaseSuccess={handlePurchaseSuccess}
                   onBalanceUpdate={handleBalanceUpdate}
                 />
               </CardContent>
             </Card>
-
-            {/* Token Pricing */}
-            <Card className="pump-card border-gray-700 bg-gray-800/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-white text-lg flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-[#00ff88]" />
-                  token prices
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded">
-                  <div className="flex items-center gap-2">
-                    <Timer className="h-4 w-4 text-[#00ff88]" />
-                    <span className="text-white text-sm">single line</span>
-                  </div>
-                  <span className="text-[#00ff88] font-bold text-sm">0.005 SOL</span>
-                </div>
-                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded border border-[#00ff88]/30">
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-[#00ff88]" />
-                    <span className="text-white text-sm">10-pack</span>
-                  </div>
-                  <span className="text-[#00ff88] font-bold text-sm">0.02 SOL</span>
-                </div>
-                <div className="flex items-center justify-between p-2 bg-gray-700/50 rounded border border-red-500/30">
-                  <div className="flex items-center gap-2">
-                    <Bomb className="h-4 w-4 text-red-400" />
-                    <span className="text-white text-sm">nuke board</span>
-                  </div>
-                  <span className="text-red-400 font-bold text-sm">0.03 SOL</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Purchase Options */}
-            {walletAddress && (
-              <Card className="pump-card border-gray-700 bg-gray-800/50">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-white text-lg">buy tokens</CardTitle>
-                  <CardDescription className="text-gray-400 text-sm">50% to streamer • 50% to D3vCav3</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <PurchaseOptions
-                    sessionId={sessionId}
-                    walletAddress={walletAddress}
-                    walletBalance={walletBalance}
-                    onPurchaseSuccess={handlePurchaseSuccess}
-                    onBalanceUpdate={handleBalanceUpdate}
-                  />
-                </CardContent>
-              </Card>
-            )}
           </div>
+        )}
 
-          {/* Main Canvas Area */}
-          <div className="xl:col-span-3">
-            <Card className="pump-card border-gray-700 bg-gray-800/50 h-full">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-white text-lg">interactive whiteboard</CardTitle>
-                <CardDescription className="text-gray-400 text-sm">
-                  use tokens to draw lines (5s limit) or nuke the entire board
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="h-[calc(100%-80px)]">
-                <DrawingCanvas
-                  isReadOnly={false}
-                  sessionId={sessionId}
-                  walletAddress={walletAddress}
-                  userTokens={tokens}
-                  onTokenUsed={handleTokenUsed}
-                />
-              </CardContent>
-            </Card>
-          </div>
+        {/* Main Canvas Area - Full Width */}
+        <Card className="pump-card border-gray-700 bg-gray-800/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-white text-lg">interactive whiteboard</CardTitle>
+            <CardDescription className="text-gray-400 text-sm">
+              use tokens to draw lines (5s limit) or nuke the entire board
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[600px]">
+              <DrawingCanvas
+                isReadOnly={false}
+                sessionId={sessionId}
+                walletAddress={walletAddress}
+                userTokens={tokens}
+                onTokenUsed={handleTokenUsed}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Footer Info */}
+        <div className="mt-6 text-center">
+          <p className="text-gray-500 text-sm">
+            💡 <strong>how it works:</strong> purchase tokens above, then click and drag on the canvas to draw. each
+            line token gives you 5 seconds of drawing time.
+          </p>
+          <p className="text-gray-600 text-xs mt-2">
+            made with ❤️ by <span className="pump-text-gradient">D3vCav3</span> • powered by draw.fun • 50/50 revenue
+            split
+          </p>
         </div>
       </div>
     </div>
