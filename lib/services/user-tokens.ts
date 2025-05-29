@@ -49,9 +49,9 @@ export class UserTokenService {
 
     const result = await query(
       `UPDATE user_tokens 
-       SET ${column} = ${column} - 1, updated_at = NOW()
-       WHERE session_id = $1 AND user_wallet = $2 AND ${column} > 0
-       RETURNING *`,
+     SET ${column} = ${column} - 1, updated_at = NOW()
+     WHERE session_id = $1 AND user_wallet = $2 AND ${column} > 0
+     RETURNING *`,
       [session_id, user_wallet],
     )
     return result.rows[0] || null

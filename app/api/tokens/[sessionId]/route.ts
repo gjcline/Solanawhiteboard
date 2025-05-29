@@ -30,19 +30,16 @@ export async function POST(request: NextRequest, { params }: { params: { session
     }
 
     let tokens = null
+    let useTokenResult = null
 
     if (action === "use") {
-      // The original code had a potential issue where UserTokenService.useToken was being called conditionally.
-      // While this isn't a React hook, the principle of consistent execution applies to ensure predictable behavior.
-      // To address this, we can move the call outside the conditional and handle the case where action is not "use" separately.
-      const useTokenResult = await UserTokenService.useToken(params.sessionId, user_wallet, token_type)
+      useTokenResult = await UserTokenService.useToken(params.sessionId, user_wallet, token_type)
 
-      if (!useTokenResult && action === "use") {
+      if (!useTokenResult) {
         return NextResponse.json({ error: "No tokens available" }, { status: 400 })
       }
-      if (action === "use") {
-        tokens = useTokenResult
-      }
+
+      tokens = useTokenResult
     } else if (action === "add") {
       tokens = await UserTokenService.addTokens(params.sessionId, user_wallet, line_tokens, nuke_tokens)
     } else {
