@@ -7,7 +7,6 @@ import {
   validateSufficientBalanceFlexible,
 } from "../solana-fees"
 import { createStreamerPayoutTransaction } from "../solana-transactions"
-// Removed 'query' import as we'll use 'sql' from Vercel Postgres directly
 
 export interface EscrowRecord {
   id?: number
@@ -53,9 +52,9 @@ export interface PendingRelease {
 export class EscrowService {
   static async createEscrow(escrowData: EscrowRecord): Promise<EscrowRecord> {
     try {
-      console.log("🏦 Creating escrow:", escrowData)
+      console.log("🏦 Creating escrow (v2):", escrowData)
 
-      // First, ensure the table exists using tagged template literal for DDL
+      // Ensure the table exists
       await sql`
         CREATE TABLE IF NOT EXISTS escrow_transactions (
           id SERIAL PRIMARY KEY,
@@ -71,12 +70,12 @@ export class EscrowService {
         )
       `
 
-      // Now insert the record using sql.query for parameterized query
-      const result = await sql.query(
+      // Step 1: Insert the record and return only the ID
+      const insertResult = await sql.query(
         `INSERT INTO escrow_transactions 
          (session_id, user_wallet, total_tokens_purchased, total_amount_paid, escrow_wallet, purchase_type, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-         RETURNING *`,
+         RETURNING id`, // Only return the ID
         [
           escrowData.session_id,
           escrowData.user_wallet,
@@ -87,23 +86,37 @@ export class EscrowService {
         ],
       )
 
-      if (!result || !result.rows || result.rows.length === 0) {
-        console.error("⚠️ No rows returned from insert operation for escrowData:", escrowData)
-        throw new Error("Failed to create escrow record: No data returned after insert.")
+      if (!insertResult || !insertResult.rows || insertResult.rows.length === 0 || !insertResult.rows[0].id) {
+        console.error(
+          "⚠️ No ID returned from insert operation for escrowData:",
+          escrowData,
+          "InsertResult:",
+          insertResult,
+        )
+        throw new Error("Failed to create escrow record: No ID returned after insert.")
       }
 
-      console.log("✅ Escrow created:", result.rows[0])
-      return result.rows[0]
+      const newEscrowId = insertResult.rows[0].id
+      console.log(`✅ Escrow record inserted with ID: ${newEscrowId}`)
+
+      // Step 2: Fetch the newly created record using its ID
+      const selectResult = await sql.query(`SELECT * FROM escrow_transactions WHERE id = $1`, [newEscrowId])
+
+      if (!selectResult || !selectResult.rows || selectResult.rows.length === 0) {
+        console.error(`⚠️ Failed to fetch escrow record with ID ${newEscrowId} after insert.`)
+        throw new Error(`Failed to retrieve escrow record (ID: ${newEscrowId}) after creation.`)
+      }
+
+      console.log("✅ Escrow created and fetched:", selectResult.rows[0])
+      return selectResult.rows[0]
     } catch (error) {
-      console.error("❌ Error creating escrow:", error)
-      // Re-throw the error so the calling function knows it failed
-      throw error
+      console.error("❌ Error in createEscrow (v2):", error)
+      throw error // Re-throw to be handled by the API route
     }
   }
 
   static async getEscrowsBySession(sessionId: string): Promise<EscrowRecord[]> {
     try {
-      // Ensure table exists first
       await sql`
         CREATE TABLE IF NOT EXISTS escrow_transactions (
           id SERIAL PRIMARY KEY,
@@ -118,22 +131,19 @@ export class EscrowService {
           updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
       `
-      // Use sql.query for parameterized query
       const result = await sql.query(
         `SELECT * FROM escrow_transactions WHERE session_id = $1 ORDER BY created_at DESC`,
         [sessionId],
       )
-
       return result?.rows || []
     } catch (error) {
       console.error("❌ Error getting escrows by session:", error)
-      return [] // Return empty array on error as before
+      return []
     }
   }
 
   static async updateEscrowStatus(escrowId: number, status: string): Promise<boolean> {
     try {
-      // Use sql.query for parameterized query
       await sql.query(`UPDATE escrow_transactions SET status = $1 WHERE id = $2`, [status, escrowId])
       return true
     } catch (error) {
@@ -142,14 +152,12 @@ export class EscrowService {
     }
   }
 
-  // Queue token usage with flexible fee estimation
   static async queueTokenUsage(
     escrowId: string,
     sessionId: string,
     userWallet: string,
     tokenUsed: "single" | "bundle" | "nuke",
   ): Promise<void> {
-    // Get escrow details
     const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
     `
@@ -159,13 +167,11 @@ export class EscrowService {
       throw new Error("No tokens available or escrow not found")
     }
 
-    // Use the correct token value for payout (not purchase price)
     const tokenValue = getTokenValue(tokenUsed)
     const streamerAmount = tokenValue * 0.5
-    const devcaveAmount = tokenValue * 0.5 // This stays in DevCave wallet
+    const devcaveAmount = tokenValue * 0.5
 
-    // Get fee estimate with tolerance
-    const feeCalc = calculateTransactionFeesWithTolerance(1) // 1 transfer instruction (only to streamer)
+    const feeCalc = calculateTransactionFeesWithTolerance(1)
     const estimatedFees = feeCalc.totalFee
 
     console.log(`💰 Token usage with flexible fees:`, {
@@ -177,7 +183,6 @@ export class EscrowService {
       fee_tolerance: feeCalc.toleranceRange,
     })
 
-    // Add to pending releases queue with fee estimation
     await sql`
       INSERT INTO pending_releases (
         id, escrow_id, session_id, user_wallet, token_type,
@@ -190,7 +195,6 @@ export class EscrowService {
       )
     `
 
-    // Update escrow immediately (optimistic)
     await sql`
       UPDATE token_escrows 
       SET tokens_used = tokens_used + 1,
@@ -201,9 +205,7 @@ export class EscrowService {
     `
   }
 
-  // Process batched releases with flexible fee handling
   static async processPendingReleases(): Promise<void> {
-    // Get all pending releases grouped by session
     const pendingBySessionResult = await sql`
       SELECT 
         session_id,
@@ -223,7 +225,6 @@ export class EscrowService {
 
     for (const batch of pendingBySession) {
       try {
-        // Get session wallet
         const sessionResult = await sql`
           SELECT streamer_wallet FROM sessions WHERE session_id = ${batch.session_id}
         `
@@ -231,14 +232,12 @@ export class EscrowService {
 
         if (!session) continue
 
-        // Validate sufficient balance with tolerance
         const totalAmount = batch.total_streamer + batch.total_devcave
         if (!validateSufficientBalanceFlexible(totalAmount, batch.total_streamer, batch.total_estimated_fees)) {
           console.warn(`⚠️ Skipping batch due to insufficient balance for fee tolerance`)
           continue
         }
 
-        // Execute transaction and get actual fee
         const { signature, actualFee } = await this.executeBatchedReleaseFlexible({
           sessionId: batch.session_id,
           streamerWallet: session.streamer_wallet,
@@ -248,7 +247,6 @@ export class EscrowService {
           releaseIds: batch.release_ids,
         })
 
-        // Calculate final amounts with actual fees
         const { adjustedStreamerAmount, actualFeesDeducted, feeVariance } = deductFeesFromAmountsFlexible(
           batch.total_streamer,
           batch.total_devcave,
@@ -267,7 +265,6 @@ export class EscrowService {
           final_streamer_amount: adjustedStreamerAmount,
         })
 
-        // Update escrow records with actual fees deducted
         for (const escrowId of batch.escrow_ids) {
           await sql`
             UPDATE token_escrows 
@@ -276,7 +273,6 @@ export class EscrowService {
           `
         }
 
-        // Mark as processed
         await sql`
           DELETE FROM pending_releases 
           WHERE id = ANY(${batch.release_ids})
@@ -285,8 +281,6 @@ export class EscrowService {
         console.log(`✅ Processed batch: ${batch.token_count} tokens, signature: ${signature}`)
       } catch (error) {
         console.error(`❌ Failed to process batch for session ${batch.session_id}:`, error)
-
-        // Don't delete pending releases on fee-related errors - they can be retried
         if (error instanceof Error && error.message.includes("fee")) {
           console.log(`🔄 Fee-related error, will retry batch later`)
         }
@@ -294,7 +288,6 @@ export class EscrowService {
     }
   }
 
-  // Execute transaction with flexible fee handling
   private static async executeBatchedReleaseFlexible(params: {
     sessionId: string
     streamerWallet: string
@@ -312,16 +305,14 @@ export class EscrowService {
     })
 
     try {
-      // Execute actual transaction from DevCave wallet to streamer
       const { signature, actualFee } = await createStreamerPayoutTransaction({
         fromWallet: DEVCAVE_WALLET,
         toWallet: params.streamerWallet,
         amount: params.streamerAmount,
         network: "mainnet-beta",
-        maxAcceptableFee: params.estimatedFees * 1.5, // Allow 50% fee variance
+        maxAcceptableFee: params.estimatedFees * 1.5,
       })
 
-      // Validate the actual fee is acceptable
       if (!isFeesAcceptable(params.estimatedFees, actualFee)) {
         throw new Error(`Transaction fee too high: ${actualFee} SOL`)
       }
@@ -340,7 +331,6 @@ export class EscrowService {
     }
   }
 
-  // Get active escrow for user/session
   static async getActiveEscrow(sessionId: string, userWallet: string): Promise<TokenEscrow | null> {
     const result = await sql`
       SELECT * FROM token_escrows 
@@ -353,7 +343,6 @@ export class EscrowService {
     return result.rows[0] || null
   }
 
-  // Process refund (fees already deducted from released amounts)
   static async processRefund(escrowId: string): Promise<number> {
     const escrowResult = await sql`
       SELECT * FROM token_escrows WHERE id = ${escrowId} AND status = 'active'
@@ -367,14 +356,12 @@ export class EscrowService {
     const pricePerToken = escrow.total_amount_paid / escrow.total_tokens_purchased
     const refundAmount = escrow.tokens_remaining * pricePerToken
 
-    // Execute refund transaction from DevCave wallet back to user
     console.log("💰 Processing refund:", {
       user: escrow.user_wallet,
       amount: refundAmount,
       tokens: escrow.tokens_remaining,
     })
 
-    // Update escrow status
     await sql`
       UPDATE token_escrows 
       SET status = 'refunded', updated_at = NOW()
