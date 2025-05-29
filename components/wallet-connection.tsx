@@ -13,28 +13,13 @@ interface WalletConnectionProps {
 }
 
 // Solana network configuration - MAINNET
-const SOLANA_NETWORK = "mainnet-beta" // Production mainnet
-const SOLANA_RPC_URL = `https://api.${SOLANA_NETWORK}.solana.com`
-
-// Import Solana Web3.js dynamically
-let Connection: any = null
-let PublicKey: any = null
-let LAMPORTS_PER_SOL = 1000000000
-
-// Initialize Solana Web3.js
-const initializeSolana = async () => {
-  try {
-    const solanaWeb3 = await import("@solana/web3.js")
-    Connection = solanaWeb3.Connection
-    PublicKey = solanaWeb3.PublicKey
-    LAMPORTS_PER_SOL = solanaWeb3.LAMPORTS_PER_SOL
-    console.log("Solana Web3.js loaded successfully for mainnet")
-    return true
-  } catch (error) {
-    console.warn("Failed to load Solana Web3.js, falling back to RPC calls:", error)
-    return false
-  }
-}
+const SOLANA_NETWORK = "mainnet-beta"
+const SOLANA_RPC_ENDPOINTS = [
+  "https://api.mainnet-beta.solana.com",
+  "https://solana-api.projectserum.com",
+  "https://rpc.ankr.com/solana",
+  "https://solana.public-rpc.com",
+]
 
 export default function WalletConnection({
   onWalletConnected,
@@ -48,31 +33,18 @@ export default function WalletConnection({
   const [isPhantomInstalled, setIsPhantomInstalled] = useState(false)
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false)
   const [phantomVersion, setPhantomVersion] = useState<string | null>(null)
-  const [solanaWeb3Available, setSolanaWeb3Available] = useState(false)
-  const [connection, setConnection] = useState<any>(null)
+  const [currentRpcIndex, setCurrentRpcIndex] = useState(0)
   const { toast } = useToast()
 
   useEffect(() => {
-    const init = async () => {
-      const web3Available = await initializeSolana()
-      setSolanaWeb3Available(web3Available)
-
-      if (web3Available && Connection) {
-        const conn = new Connection(SOLANA_RPC_URL, "confirmed")
-        setConnection(conn)
-        console.log("Solana mainnet connection established:", SOLANA_RPC_URL)
-      }
-
-      checkPhantomInstallation()
-      checkExistingConnection()
-    }
-
-    init()
+    checkPhantomInstallation()
+    checkExistingConnection()
 
     // Listen for account changes
     const phantom = (window as any).phantom?.solana
     if (phantom) {
       phantom.on("accountChanged", (publicKey: any) => {
+        console.log("Account changed:", publicKey?.toString())
         if (publicKey) {
           const address = publicKey.toString()
           setWalletAddress(address)
@@ -83,12 +55,12 @@ export default function WalletConnection({
       })
 
       phantom.on("disconnect", () => {
+        console.log("Phantom disconnected")
         handleDisconnect()
       })
     }
 
     return () => {
-      // Cleanup listeners
       if (phantom) {
         phantom.removeAllListeners("accountChanged")
         phantom.removeAllListeners("disconnect")
@@ -98,15 +70,18 @@ export default function WalletConnection({
 
   const checkPhantomInstallation = () => {
     const phantom = (window as any).phantom?.solana
-    setIsPhantomInstalled(!!phantom)
+    const isInstalled = !!phantom
+    setIsPhantomInstalled(isInstalled)
 
     if (phantom) {
       setPhantomVersion(phantom.version || "unknown")
-      console.log("Phantom detected for mainnet:", {
+      console.log("Phantom wallet detected:", {
         version: phantom.version,
         isConnected: phantom.isConnected,
         publicKey: phantom.publicKey?.toString(),
       })
+    } else {
+      console.log("Phantom wallet not detected")
     }
   }
 
@@ -115,108 +90,100 @@ export default function WalletConnection({
       const phantom = (window as any).phantom?.solana
       if (phantom && phantom.isConnected && phantom.publicKey) {
         const address = phantom.publicKey.toString()
+        console.log("Existing connection found:", address)
         setWalletAddress(address)
         setIsConnected(true)
         const walletBalance = await fetchBalance(address)
         onWalletConnected(address, walletBalance)
-
-        console.log("Existing mainnet connection found:", address)
       }
     } catch (error) {
       console.error("Error checking existing connection:", error)
     }
   }
 
-  const fetchBalanceWithWeb3 = async (address: string): Promise<number> => {
-    try {
-      if (!connection || !PublicKey) {
-        throw new Error("Solana Web3.js not available")
-      }
+  const fetchBalanceFromRPC = async (address: string, rpcUrl: string): Promise<number> => {
+    console.log(`Fetching balance from ${rpcUrl} for address:`, address)
 
-      console.log("Fetching mainnet balance with Web3.js for:", address)
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getBalance",
+        params: [address],
+      }),
+    })
 
-      const publicKey = new PublicKey(address)
-      const balanceInLamports = await connection.getBalance(publicKey)
-      const balanceInSOL = balanceInLamports / LAMPORTS_PER_SOL
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    }
 
-      console.log("Mainnet Web3.js balance fetched:", {
-        lamports: balanceInLamports,
-        sol: balanceInSOL,
-        network: SOLANA_NETWORK,
-      })
+    const data = await response.json()
+    console.log(`Balance response from ${rpcUrl}:`, data)
 
+    if (data.error) {
+      throw new Error(`RPC Error: ${data.error.message}`)
+    }
+
+    if (data.result && typeof data.result.value === "number") {
+      const balanceInSOL = data.result.value / 1000000000
+      console.log(`Balance fetched: ${balanceInSOL} SOL`)
       return balanceInSOL
-    } catch (error) {
-      console.error("Web3.js mainnet balance fetch failed:", error)
-      throw error
     }
-  }
 
-  const fetchBalanceWithRPC = async (address: string): Promise<number> => {
-    try {
-      console.log("Fetching mainnet balance with RPC for:", address)
-
-      const response = await fetch(SOLANA_RPC_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getBalance",
-          params: [address],
-        }),
-      })
-
-      const data = await response.json()
-      console.log("Mainnet RPC balance response:", data)
-
-      if (data.result && typeof data.result.value === "number") {
-        const balanceInSOL = data.result.value / 1000000000
-        console.log("Mainnet RPC balance fetched:", balanceInSOL, "SOL")
-        return balanceInSOL
-      } else {
-        throw new Error("RPC call failed: " + JSON.stringify(data.error))
-      }
-    } catch (error) {
-      console.error("RPC mainnet balance fetch failed:", error)
-      throw error
-    }
+    throw new Error("Invalid response format")
   }
 
   const fetchBalance = async (address: string): Promise<number> => {
+    if (!address) {
+      console.error("No address provided for balance fetch")
+      return 0
+    }
+
+    setIsRefreshingBalance(true)
+
     try {
-      setIsRefreshingBalance(true)
+      // Try multiple RPC endpoints for reliability
+      let lastError: Error | null = null
 
-      let balanceInSOL: number
+      for (let i = 0; i < SOLANA_RPC_ENDPOINTS.length; i++) {
+        const rpcIndex = (currentRpcIndex + i) % SOLANA_RPC_ENDPOINTS.length
+        const rpcUrl = SOLANA_RPC_ENDPOINTS[rpcIndex]
 
-      // Try Web3.js first, fallback to RPC
-      if (solanaWeb3Available && connection) {
         try {
-          balanceInSOL = await fetchBalanceWithWeb3(address)
-        } catch (web3Error) {
-          console.warn("Web3.js failed, falling back to RPC:", web3Error)
-          balanceInSOL = await fetchBalanceWithRPC(address)
+          const balanceInSOL = await fetchBalanceFromRPC(address, rpcUrl)
+
+          // Update state
+          setBalance(balanceInSOL)
+          onBalanceUpdate(balanceInSOL)
+
+          // Update successful RPC endpoint
+          setCurrentRpcIndex(rpcIndex)
+
+          console.log(`Successfully fetched balance: ${balanceInSOL} SOL from ${rpcUrl}`)
+          return balanceInSOL
+        } catch (error) {
+          console.warn(`Failed to fetch from ${rpcUrl}:`, error)
+          lastError = error as Error
+          continue
         }
-      } else {
-        balanceInSOL = await fetchBalanceWithRPC(address)
       }
 
-      setBalance(balanceInSOL)
-      onBalanceUpdate(balanceInSOL)
-
-      return balanceInSOL
+      // All RPC endpoints failed
+      throw lastError || new Error("All RPC endpoints failed")
     } catch (error) {
-      console.error("All mainnet balance fetch methods failed:", error)
+      console.error("Failed to fetch balance from all endpoints:", error)
 
-      // On mainnet, show 0 if we can't fetch
+      // Set balance to 0 and show error
       setBalance(0)
       onBalanceUpdate(0)
 
       toast({
         title: "balance fetch failed",
-        description: "unable to fetch wallet balance. please check your connection.",
+        description: "unable to fetch wallet balance. please try refreshing.",
         variant: "destructive",
       })
 
@@ -240,16 +207,18 @@ export default function WalletConnection({
 
     try {
       const phantom = (window as any).phantom.solana
-      console.log("Attempting to connect to Phantom on mainnet...")
+      console.log("Attempting to connect to Phantom...")
 
+      // Request connection
       const response = await phantom.connect({ onlyIfTrusted: false })
       const address = response.publicKey.toString()
+
+      console.log("Phantom connected successfully:", address)
 
       setWalletAddress(address)
       setIsConnected(true)
 
-      console.log("Mainnet wallet connected:", address)
-
+      // Fetch balance immediately after connection
       const walletBalance = await fetchBalance(address)
       onWalletConnected(address, walletBalance)
 
@@ -258,13 +227,15 @@ export default function WalletConnection({
         description: `connected to mainnet: ${address.slice(0, 8)}...${address.slice(-8)}`,
       })
     } catch (error: any) {
-      console.error("Mainnet connection error:", error)
+      console.error("Connection error:", error)
 
       let errorMessage = "failed to connect to phantom wallet."
       if (error.code === 4001) {
         errorMessage = "connection request was rejected by user."
       } else if (error.code === -32002) {
         errorMessage = "connection request is already pending."
+      } else if (error.message) {
+        errorMessage = error.message
       }
 
       toast({
@@ -278,6 +249,7 @@ export default function WalletConnection({
   }
 
   const handleDisconnect = () => {
+    console.log("Handling wallet disconnect")
     setIsConnected(false)
     setWalletAddress(null)
     setBalance(null)
@@ -305,10 +277,11 @@ export default function WalletConnection({
 
   const refreshBalance = async () => {
     if (walletAddress) {
+      console.log("Manual balance refresh requested")
       await fetchBalance(walletAddress)
       toast({
         title: "balance updated",
-        description: "your mainnet wallet balance has been refreshed.",
+        description: "your wallet balance has been refreshed.",
       })
     }
   }
@@ -338,10 +311,7 @@ export default function WalletConnection({
           <AlertDescription className="text-sm">
             connect phantom to purchase drawing tokens
             {phantomVersion && (
-              <div className="text-xs text-gray-500 mt-1">
-                phantom v{phantomVersion} detected • mainnet
-                {solanaWeb3Available && " • web3.js loaded"}
-              </div>
+              <div className="text-xs text-gray-500 mt-1">phantom v{phantomVersion} detected • mainnet ready</div>
             )}
           </AlertDescription>
         </Alert>
@@ -388,7 +358,16 @@ export default function WalletConnection({
           <div>
             <div className="text-xs text-gray-400 uppercase tracking-wide">sol balance</div>
             <div className="text-lg font-bold text-[#00ff88]">
-              {balance !== null ? `${balance.toFixed(4)} SOL` : "loading..."}
+              {isRefreshingBalance ? (
+                <div className="flex items-center">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  loading...
+                </div>
+              ) : balance !== null ? (
+                `${balance.toFixed(4)} SOL`
+              ) : (
+                "failed to load"
+              )}
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={refreshBalance} disabled={isRefreshingBalance}>
@@ -400,13 +379,15 @@ export default function WalletConnection({
       <div className="text-xs text-gray-500 text-center space-y-1">
         <div>
           network: <span className="uppercase font-mono text-[#00ff88]">mainnet-beta</span>
-          {solanaWeb3Available && " • web3.js"}
         </div>
         {phantomVersion && (
           <div>
             phantom: <span className="font-mono">v{phantomVersion}</span>
           </div>
         )}
+        <div className="text-xs text-gray-600">
+          rpc: {SOLANA_RPC_ENDPOINTS[currentRpcIndex].replace("https://", "")}
+        </div>
       </div>
     </div>
   )

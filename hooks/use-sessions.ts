@@ -5,6 +5,7 @@ import { useAuth } from "@/components/auth-provider"
 
 interface Session {
   id: string
+  session_id: string
   name: string
   owner_id: number
   streamer_wallet: string
@@ -97,22 +98,63 @@ export function useSessions() {
     const data = await response.json()
     console.log("Session updated:", data.session)
 
-    // Update the session in our local state
-    setSessions((prev) => prev.map((session) => (session.id === sessionId ? { ...session, ...data.session } : session)))
+    // Update the session in our local state using session_id
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.session_id === sessionId || session.id === sessionId ? { ...session, ...data.session } : session,
+      ),
+    )
 
     return data.session
   }
 
   const deleteSession = async (sessionId: string) => {
+    console.log("Deactivating session:", sessionId)
+
+    const response = await fetch(`/api/sessions/${sessionId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ is_active: false }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to deactivate session")
+    }
+
+    const data = await response.json()
+    console.log("Session deactivated:", data.session)
+
+    // Update the session in local state to show as inactive
+    setSessions((prev) =>
+      prev.map((session) =>
+        session.session_id === sessionId || session.id === sessionId ? { ...session, is_active: false } : session,
+      ),
+    )
+
+    return data.session
+  }
+
+  const permanentDeleteSession = async (sessionId: string) => {
+    console.log("Permanently deleting session:", sessionId)
+
     const response = await fetch(`/api/sessions/${sessionId}`, {
       method: "DELETE",
     })
 
     if (!response.ok) {
-      throw new Error("Failed to delete session")
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to permanently delete session")
     }
 
-    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    console.log("Session permanently deleted:", sessionId)
+
+    // Remove the session from local state completely
+    setSessions((prev) => prev.filter((session) => session.session_id !== sessionId && session.id !== sessionId))
+
+    return true
   }
 
   useEffect(() => {
@@ -126,6 +168,7 @@ export function useSessions() {
     createSession,
     updateSession,
     deleteSession,
+    permanentDeleteSession,
     refetch: fetchSessions,
   }
 }

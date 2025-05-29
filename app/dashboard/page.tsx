@@ -90,6 +90,7 @@ export default function DashboardPage() {
         description: "your new token-based drawing session is ready to pump.",
       })
     } catch (error) {
+      console.error("Error creating session:", error)
       toast({
         title: "failed to create session",
         description: "try again.",
@@ -102,6 +103,7 @@ export default function DashboardPage() {
 
   const handleDeactivateSession = async (sessionId: string) => {
     try {
+      console.log("Deactivating session:", sessionId)
       await deleteSession(sessionId) // This does soft delete (deactivate)
 
       toast({
@@ -109,6 +111,7 @@ export default function DashboardPage() {
         description: "the drawing session has been deactivated and is no longer accessible.",
       })
     } catch (error) {
+      console.error("Error deactivating session:", error)
       toast({
         title: "failed to deactivate session",
         description: "try again.",
@@ -118,11 +121,16 @@ export default function DashboardPage() {
   }
 
   const handlePermanentDeleteSession = async (sessionId: string) => {
-    if (!confirm("Are you sure you want to permanently delete this session? This action cannot be undone.")) {
+    if (
+      !confirm(
+        "Are you sure you want to permanently delete this session? This action cannot be undone and will remove all session data.",
+      )
+    ) {
       return
     }
 
     try {
+      console.log("Permanently deleting session:", sessionId)
       await permanentDeleteSession(sessionId) // This does hard delete
 
       toast({
@@ -130,6 +138,7 @@ export default function DashboardPage() {
         description: "the session and all its data have been permanently removed.",
       })
     } catch (error) {
+      console.error("Error permanently deleting session:", error)
       toast({
         title: "failed to delete session",
         description: "try again.",
@@ -140,6 +149,7 @@ export default function DashboardPage() {
 
   const handleToggleSession = async (sessionId: string, currentStatus: boolean) => {
     try {
+      console.log("Toggling session:", sessionId, "from", currentStatus, "to", !currentStatus)
       await updateSession(sessionId, { is_active: !currentStatus })
 
       toast({
@@ -149,6 +159,7 @@ export default function DashboardPage() {
           : "session is now active and accessible to viewers.",
       })
     } catch (error) {
+      console.error("Error toggling session:", error)
       toast({
         title: "failed to update session",
         description: "try again.",
@@ -175,6 +186,7 @@ export default function DashboardPage() {
         description: "session wallet address has been updated successfully.",
       })
     } catch (error) {
+      console.error("Error updating wallet:", error)
       toast({
         title: "failed to update wallet",
         description: "please try again.",
@@ -252,6 +264,7 @@ export default function DashboardPage() {
         description: "your default wallet has been updated.",
       })
     } catch (error) {
+      console.error("Error saving wallet:", error)
       toast({
         title: "failed to save wallet",
         description: "please try again.",
@@ -271,6 +284,9 @@ export default function DashboardPage() {
     const num = typeof earnings === "string" ? Number.parseFloat(earnings) : earnings || 0
     return isNaN(num) ? "0.00000" : num.toFixed(5)
   }
+
+  // Get the session ID consistently
+  const getSessionId = (session: any) => session.session_id || session.id
 
   if (!user) {
     return null
@@ -425,246 +441,232 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           ) : (
-            sessions?.map((session) => (
-              <Card
-                key={session.session_id || session.id}
-                className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}
-              >
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-white">{session.name}</CardTitle>
-                        {session.is_active ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-400 border border-green-500/30">
-                            <Power className="h-3 w-3" />
-                            active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-400 border border-red-500/30">
-                            <PowerOff className="h-3 w-3" />
-                            inactive
-                          </span>
-                        )}
+            sessions?.map((session) => {
+              const sessionId = getSessionId(session)
+              return (
+                <Card key={sessionId} className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-white">{session.name}</CardTitle>
+                          {session.is_active ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-400 border border-green-500/30">
+                              <Power className="h-3 w-3" />
+                              active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-400 border border-red-500/30">
+                              <PowerOff className="h-3 w-3" />
+                              inactive
+                            </span>
+                          )}
+                        </div>
+                        <CardDescription className="text-gray-400">
+                          created {new Date(session.created_at).toLocaleDateString()}
+                        </CardDescription>
                       </div>
-                      <CardDescription className="text-gray-400">
-                        created {new Date(session.created_at).toLocaleDateString()}
-                      </CardDescription>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleToggleSession(sessionId, session.is_active)}
+                          className={`border-gray-700 hover:bg-gray-800 ${
+                            session.is_active
+                              ? "text-red-400 hover:text-red-300"
+                              : "text-green-400 hover:text-green-300"
+                          }`}
+                          title={session.is_active ? "Deactivate session" : "Reactivate session"}
+                        >
+                          {session.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
+                          className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                          disabled={!session.is_active}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeactivateSession(sessionId)}
+                          className="border-gray-700 text-orange-400 hover:bg-gray-800 hover:text-orange-300"
+                          title="Deactivate session (soft delete)"
+                        >
+                          <PowerOff className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePermanentDeleteSession(sessionId)}
+                          className="border-gray-700 text-red-400 hover:bg-gray-800 hover:text-red-300"
+                          title="Permanently delete session (hard delete)"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleToggleSession(session.session_id || session.id, session.is_active)}
-                        className={`border-gray-700 hover:bg-gray-800 ${
-                          session.is_active ? "text-red-400 hover:text-red-300" : "text-green-400 hover:text-green-300"
-                        }`}
-                        title={session.is_active ? "Deactivate session" : "Reactivate session"}
-                      >
-                        {session.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          copyToClipboard(`${window.location.origin}/view/${session.session_id || session.id}`, "view")
-                        }
-                        className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                        disabled={!session.is_active}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeactivateSession(session.session_id || session.id)}
-                        className="border-gray-700 text-orange-400 hover:bg-gray-800 hover:text-orange-300"
-                        title="Deactivate session (soft delete)"
-                      >
-                        <PowerOff className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handlePermanentDeleteSession(session.session_id || session.id)}
-                        className="border-gray-700 text-red-400 hover:bg-gray-800 hover:text-red-300"
-                        title="Permanently delete session (hard delete)"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {/* Session Wallet Display/Edit */}
-                  <div className="mb-4 p-3 bg-gray-800/50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-300 text-sm">receiving wallet (50% revenue)</h4>
-                        {editingWallet === (session.session_id || session.id) ? (
-                          <div className="flex items-center gap-2 mt-2">
-                            <WalletAddressInput
-                              value={editWalletValue}
-                              onChange={setEditWalletValue}
-                              className="flex-1 bg-gray-700 border-gray-600 text-white text-sm"
-                            />
-                            {defaultWalletAddress && defaultWalletAddress !== editWalletValue && (
+                  </CardHeader>
+                  <CardContent>
+                    {/* Session Wallet Display/Edit */}
+                    <div className="mb-4 p-3 bg-gray-800/50 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-300 text-sm">receiving wallet (50% revenue)</h4>
+                          {editingWallet === sessionId ? (
+                            <div className="flex items-center gap-2 mt-2">
+                              <WalletAddressInput
+                                value={editWalletValue}
+                                onChange={setEditWalletValue}
+                                className="flex-1 bg-gray-700 border-gray-600 text-white text-sm"
+                              />
+                              {defaultWalletAddress && defaultWalletAddress !== editWalletValue && (
+                                <Button
+                                  onClick={useDefaultWalletForEdit}
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-gray-600 text-gray-300 hover:bg-gray-700 whitespace-nowrap"
+                                  title="Use your default wallet address"
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                </Button>
+                              )}
                               <Button
-                                onClick={useDefaultWalletForEdit}
+                                onClick={() => handleUpdateSessionWallet(sessionId, editWalletValue)}
+                                size="sm"
+                                className="pump-button text-black"
+                                disabled={!isValidSolanaAddress(editWalletValue)}
+                              >
+                                <Check className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                onClick={cancelEditingWallet}
                                 size="sm"
                                 variant="outline"
-                                className="border-gray-600 text-gray-300 hover:bg-gray-700 whitespace-nowrap"
-                                title="Use your default wallet address"
+                                className="border-gray-600 text-gray-300"
                               >
-                                <RefreshCw className="h-3 w-3" />
+                                <X className="h-3 w-3" />
                               </Button>
-                            )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs font-mono text-gray-400">
+                                {formatWalletAddress(session.streamer_wallet, 8, 8)}
+                              </span>
+                              <Button
+                                onClick={() => startEditingWallet(sessionId, session.streamer_wallet)}
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                                disabled={!session.is_active}
+                              >
+                                <Edit2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <h4 className="font-medium mb-2 text-gray-300">for your stream (view only)</h4>
+                        <div className="flex gap-2">
+                          <Input
+                            value={`${window.location.origin}/view/${sessionId}`}
+                            readOnly
+                            className="text-xs bg-gray-800 border-gray-700 text-gray-400"
+                          />
+                          <Link href={`/view/${sessionId}`}>
                             <Button
-                              onClick={() =>
-                                handleUpdateSessionWallet(session.session_id || session.id, editWalletValue)
-                              }
-                              size="sm"
-                              className="pump-button text-black"
-                              disabled={!isValidSolanaAddress(editWalletValue)}
-                            >
-                              <Check className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              onClick={cancelEditingWallet}
-                              size="sm"
                               variant="outline"
-                              className="border-gray-600 text-gray-300"
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-mono text-gray-400">
-                              {formatWalletAddress(session.streamer_wallet, 8, 8)}
-                            </span>
-                            <Button
-                              onClick={() =>
-                                startEditingWallet(session.session_id || session.id, session.streamer_wallet)
-                              }
                               size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                              className="border-gray-700 text-gray-300 hover:bg-gray-800"
                               disabled={!session.is_active}
                             >
-                              <Edit2 className="h-3 w-3" />
+                              <Eye className="h-4 w-4" />
                             </Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <h4 className="font-medium mb-2 text-gray-300">for your stream (view only)</h4>
-                      <div className="flex gap-2">
-                        <Input
-                          value={`${window.location.origin}/view/${session.session_id || session.id}`}
-                          readOnly
-                          className="text-xs bg-gray-800 border-gray-700 text-gray-400"
-                        />
-                        <Link href={`/view/${session.session_id || session.id}`}>
+                          </Link>
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
                             className="border-gray-700 text-gray-300 hover:bg-gray-800"
                             disabled={!session.is_active}
                           >
-                            <Eye className="h-4 w-4" />
+                            <Copy className="h-4 w-4" />
                           </Button>
-                        </Link>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            copyToClipboard(
-                              `${window.location.origin}/view/${session.session_id || session.id}`,
-                              "view",
-                            )
-                          }
-                          className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                          disabled={!session.is_active}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          display this on your stream. shows live drawing and nuke effects.
+                        </p>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        display this on your stream. shows live drawing and nuke effects.
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="font-medium mb-2 text-gray-300">for viewers (token purchase & draw)</h4>
-                      <div className="flex gap-2">
-                        <Input
-                          value={`${window.location.origin}/draw/${session.session_id || session.id}`}
-                          readOnly
-                          className="text-xs bg-gray-800 border-gray-700 text-gray-400"
-                        />
-                        <Link href={`/draw/${session.session_id || session.id}`}>
+                      <div>
+                        <h4 className="font-medium mb-2 text-gray-300">for viewers (token purchase & draw)</h4>
+                        <div className="flex gap-2">
+                          <Input
+                            value={`${window.location.origin}/draw/${sessionId}`}
+                            readOnly
+                            className="text-xs bg-gray-800 border-gray-700 text-gray-400"
+                          />
+                          <Link href={`/draw/${sessionId}`}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                              disabled={!session.is_active}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </Link>
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => copyToClipboard(`${window.location.origin}/draw/${sessionId}`, "draw")}
                             className="border-gray-700 text-gray-300 hover:bg-gray-800"
                             disabled={!session.is_active}
                           >
-                            <ExternalLink className="h-4 w-4" />
+                            <Copy className="h-4 w-4" />
                           </Button>
-                        </Link>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            copyToClipboard(
-                              `${window.location.origin}/draw/${session.session_id || session.id}`,
-                              "draw",
-                            )
-                          }
-                          className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                          disabled={!session.is_active}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          share this URL so viewers can buy tokens and interact with your board.
+                        </p>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        share this URL so viewers can buy tokens and interact with your board.
-                      </p>
                     </div>
-                  </div>
 
-                  {/* Session Stats */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="text-[#00ff88] font-bold">{formatEarnings(session.total_earnings)} SOL</div>
-                      <div className="text-gray-400">earnings (50%)</div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="flex items-center justify-center gap-1">
-                        <Timer className="h-4 w-4" />
-                        <span className="text-white font-bold">{session.lines_drawn || 0}</span>
+                    {/* Session Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                        <div className="text-[#00ff88] font-bold">{formatEarnings(session.total_earnings)} SOL</div>
+                        <div className="text-gray-400">earnings (50%)</div>
                       </div>
-                      <div className="text-gray-400">lines drawn</div>
-                    </div>
-                    <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="flex items-center justify-center gap-1">
-                        <Bomb className="h-4 w-4 text-red-400" />
-                        <span className="text-white font-bold">{session.nukes_used || 0}</span>
+                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center justify-center gap-1">
+                          <Timer className="h-4 w-4" />
+                          <span className="text-white font-bold">{session.lines_drawn || 0}</span>
+                        </div>
+                        <div className="text-gray-400">lines drawn</div>
                       </div>
-                      <div className="text-gray-400">nukes used</div>
+                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                        <div className="flex items-center justify-center gap-1">
+                          <Bomb className="h-4 w-4 text-red-400" />
+                          <span className="text-white font-bold">{session.nukes_used || 0}</span>
+                        </div>
+                        <div className="text-gray-400">nukes used</div>
+                      </div>
+                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                        <div className="text-white font-bold">{session.viewer_count || 0}</div>
+                        <div className="text-gray-400">active viewers</div>
+                      </div>
                     </div>
-                    <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                      <div className="text-white font-bold">{session.viewer_count || 0}</div>
-                      <div className="text-gray-400">active viewers</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </div>
       </div>
