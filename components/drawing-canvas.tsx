@@ -65,6 +65,7 @@ export default function DrawingCanvas({
 
   // Add new props and state for session validation
   const [sessionDeleted, setSessionDeleted] = useState(false)
+  const [tokenValidated, setTokenValidated] = useState(false)
 
   // Initialize canvas and handle resizing
   useEffect(() => {
@@ -360,9 +361,60 @@ export default function DrawingCanvas({
     return () => clearInterval(interval)
   }, [sessionId, isReadOnly])
 
-  // Update the startDrawing function to check session status
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  // Server-side token validation before allowing drawing
+  const validateTokenBeforeDrawing = async (): Promise<boolean> => {
+    if (!sessionId || !walletAddress) {
+      toast({
+        title: "validation failed",
+        description: "session ID and wallet required for drawing.",
+        variant: "destructive",
+      })
+      return false
+    }
+
+    try {
+      // Check server-side token balance
+      const response = await fetch(`/api/tokens/${sessionId}?wallet=${walletAddress}`)
+      if (!response.ok) {
+        toast({
+          title: "token check failed",
+          description: "unable to verify token balance.",
+          variant: "destructive",
+        })
+        return false
+      }
+
+      const data = await response.json()
+      const serverTokens = data.tokens
+
+      if (!serverTokens || serverTokens.line_tokens <= 0) {
+        toast({
+          title: "no line tokens",
+          description: "purchase line tokens to start drawing.",
+          variant: "destructive",
+        })
+        return false
+      }
+
+      setTokenValidated(true)
+      return true
+    } catch (error) {
+      console.error("Token validation error:", error)
+      toast({
+        title: "validation error",
+        description: "failed to validate tokens. please try again.",
+        variant: "destructive",
+      })
+      return false
+    }
+  }
+
+  // Update the startDrawing function with strict validation
+  const startDrawing = async (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (isReadOnly || !ctx || !canvasRef.current) return
+
+    // Prevent default to stop any unwanted behavior
+    e.preventDefault()
 
     if (sessionDeleted) {
       toast({
@@ -382,12 +434,19 @@ export default function DrawingCanvas({
       return
     }
 
+    // STRICT TOKEN VALIDATION - Check both client and server
     if (userTokens.lines <= 0) {
       toast({
         title: "no line tokens",
         description: "purchase line tokens to start drawing.",
         variant: "destructive",
       })
+      return
+    }
+
+    // Server-side validation to prevent bypassing
+    const isValid = await validateTokenBeforeDrawing()
+    if (!isValid) {
       return
     }
 
@@ -419,7 +478,9 @@ export default function DrawingCanvas({
   }
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (isReadOnly || !isDrawing || !ctx || !canvasRef.current) return
+    if (isReadOnly || !isDrawing || !ctx || !canvasRef.current || !tokenValidated) return
+
+    e.preventDefault()
 
     const canvas = canvasRef.current
     const { x, y } = getPointerPosition(e, canvas)
@@ -435,12 +496,13 @@ export default function DrawingCanvas({
   const stopDrawing = (timeExpired = false) => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
-    // Only proceed if we were actually drawing
-    if (!isDrawing) return
+    // Only proceed if we were actually drawing and tokens were validated
+    if (!isDrawing || !tokenValidated) return
 
     setIsDrawing(false)
     setDrawingStartTime(null)
     setTimeLeft(DRAWING_TIME_LIMIT)
+    setTokenValidated(false) // Reset validation
 
     if (drawingTimerRef.current) {
       clearInterval(drawingTimerRef.current)
@@ -487,8 +549,26 @@ export default function DrawingCanvas({
     })
   }
 
-  // Update the nukeBoard function to check session status
-  const nukeBoard = () => {
+  // Server-side nuke validation
+  const validateNukeToken = async (): Promise<boolean> => {
+    if (!sessionId || !walletAddress) return false
+
+    try {
+      const response = await fetch(`/api/tokens/${sessionId}?wallet=${walletAddress}`)
+      if (!response.ok) return false
+
+      const data = await response.json()
+      const serverTokens = data.tokens
+
+      return serverTokens && serverTokens.nuke_tokens > 0
+    } catch (error) {
+      console.error("Nuke validation error:", error)
+      return false
+    }
+  }
+
+  // Update the nukeBoard function with strict validation
+  const nukeBoard = async () => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
     if (sessionDeleted) {
@@ -509,10 +589,22 @@ export default function DrawingCanvas({
       return
     }
 
+    // STRICT TOKEN VALIDATION - Check both client and server
     if (userTokens.nukes <= 0) {
       toast({
         title: "no nuke tokens",
         description: "purchase a nuke token to clear the board.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Server-side validation
+    const isValid = await validateNukeToken()
+    if (!isValid) {
+      toast({
+        title: "nuke validation failed",
+        description: "unable to verify nuke tokens on server.",
         variant: "destructive",
       })
       return
@@ -544,8 +636,8 @@ export default function DrawingCanvas({
     }, 0)
   }
 
-  // Update canDraw and canNuke to consider session status
-  const canDraw = walletAddress && userTokens.lines > 0 && !sessionDeleted
+  // Strict validation for drawing permissions
+  const canDraw = walletAddress && userTokens.lines > 0 && !sessionDeleted && !isDrawing
   const canNuke = walletAddress && userTokens.nukes > 0 && !sessionDeleted
 
   return (
@@ -611,13 +703,7 @@ export default function DrawingCanvas({
           {/* Drawing Tools - With Clear Button */}
           <div className="flex flex-wrap gap-2 mb-4">
             <div className="flex gap-2">
-              <Button
-                variant="default"
-                size="icon"
-                title="Draw"
-                disabled={!canDraw || isDrawing}
-                className="pump-button text-black"
-              >
+              <Button variant="default" size="icon" title="Draw" disabled={!canDraw} className="pump-button text-black">
                 <Paintbrush className="h-4 w-4" />
               </Button>
               <Button
@@ -633,7 +719,7 @@ export default function DrawingCanvas({
                 variant="outline"
                 size="icon"
                 onClick={nukeBoard}
-                disabled={!canNuke || isDrawing}
+                disabled={!canNuke}
                 title="Nuke Board"
                 className="border-red-500 text-red-400 hover:bg-red-500/20"
               >
@@ -648,17 +734,10 @@ export default function DrawingCanvas({
                 onChange={(e) => setColor(e.target.value)}
                 className="w-8 h-8 rounded cursor-pointer"
                 title="Color Picker"
-                disabled={!canDraw || isDrawing}
+                disabled={!canDraw}
               />
               <div className="w-32">
-                <Slider
-                  value={brushSize}
-                  min={1}
-                  max={30}
-                  step={1}
-                  onValueChange={setBrushSize}
-                  disabled={!canDraw || isDrawing}
-                />
+                <Slider value={brushSize} min={1} max={30} step={1} onValueChange={setBrushSize} disabled={!canDraw} />
               </div>
             </div>
           </div>
@@ -668,7 +747,7 @@ export default function DrawingCanvas({
       <div
         ref={containerRef}
         className={`border rounded-md bg-white relative flex-1 ${
-          isReadOnly ? "cursor-not-allowed" : canDraw && !isDrawing ? "cursor-crosshair" : "cursor-not-allowed"
+          isReadOnly ? "cursor-not-allowed" : canDraw ? "cursor-crosshair" : "cursor-not-allowed"
         } ${isFullscreen ? "h-full" : "min-h-[500px]"}`}
       >
         <canvas
