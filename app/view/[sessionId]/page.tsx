@@ -15,105 +15,53 @@ export default function ViewPage() {
   const sessionId = params.sessionId as string
   const [sessionExists, setSessionExists] = useState(false)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
-  const [streamerWallet, setStreamerWallet] = useState<string | null>(null)
+  const [sessionData, setSessionData] = useState<any>(null)
   const [drawUrl, setDrawUrl] = useState("")
   const [isFullscreen, setIsFullscreen] = useState(false)
   const { toast } = useToast()
 
   // Add new state for session status
   const [sessionDeleted, setSessionDeleted] = useState(false)
-  const [deletedInfo, setDeletedInfo] = useState<{ deletedAt: number; deletedBy: string } | null>(null)
 
   useEffect(() => {
     if (!sessionId) return
 
-    setDrawUrl(`${window.location.origin}/draw/${sessionId}`)
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin
+    setDrawUrl(`${baseUrl}/draw/${sessionId}`)
 
-    // Validate session exists
-    const validateSession = () => {
+    // Validate session exists via API
+    const validateSession = async () => {
       setIsCheckingSession(true)
       console.log("Validating session:", sessionId)
 
-      // Method 1: Check for session-specific wallet
-      const sessionWallet = localStorage.getItem(`session-wallet-${sessionId}`)
-      console.log("Session wallet found:", sessionWallet)
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          console.log("Session validation response:", data)
 
-      if (sessionWallet) {
-        setStreamerWallet(sessionWallet)
-        setSessionExists(true)
-        setIsCheckingSession(false)
-        console.log("Session validated via session-wallet")
-        return
-      }
-
-      // Method 2: Try to find the session in any user's sessions
-      const allKeys = Object.keys(localStorage)
-      console.log("All localStorage keys:", allKeys)
-
-      let sessionFound = false
-      let foundWallet = null
-
-      for (const key of allKeys) {
-        if (key.startsWith("sessions-")) {
-          try {
-            const sessions = JSON.parse(localStorage.getItem(key) || "[]")
-            console.log(`Checking sessions in ${key}:`, sessions)
-
-            const session = sessions.find((s: any) => s.id === sessionId)
-            if (session) {
-              sessionFound = true
-              console.log("Session found in:", key, session)
-
-              // Try to get the wallet for this session's owner
-              const userId = key.replace("sessions-", "")
-              const userWallet = localStorage.getItem(`wallet-${userId}`)
-              console.log("User wallet for", userId, ":", userWallet)
-
-              if (userWallet) {
-                foundWallet = userWallet
-                // Save it as session-specific wallet for future reference
-                localStorage.setItem(`session-wallet-${sessionId}`, userWallet)
-              }
-              break
-            }
-          } catch (error) {
-            console.error("Error parsing sessions from", key, ":", error)
+          if (data.session && data.session.streamer_wallet) {
+            setSessionExists(true)
+            setSessionData(data.session)
+            setSessionDeleted(!data.session.is_active)
+            console.log("Session validated successfully")
+          } else {
+            console.log("Session validation failed - missing data")
+            setSessionExists(false)
           }
+        } else if (response.status === 404) {
+          console.log("Session not found")
+          setSessionExists(false)
+        } else {
+          console.log("Session validation failed - HTTP error:", response.status)
+          setSessionExists(false)
         }
+      } catch (error) {
+        console.error("Session validation error:", error)
+        setSessionExists(false)
+      } finally {
+        setIsCheckingSession(false)
       }
-
-      // Method 3: Check for default wallet as fallback
-      if (!sessionFound) {
-        const defaultWallet = localStorage.getItem("whiteboard-recipient-wallet")
-        console.log("Default wallet:", defaultWallet)
-
-        if (defaultWallet) {
-          foundWallet = defaultWallet
-          sessionFound = true
-          localStorage.setItem(`session-wallet-${sessionId}`, defaultWallet)
-          console.log("Using default wallet for session")
-        }
-      }
-
-      // Method 4: Create demo session if nothing found
-      if (!sessionFound) {
-        console.log("Session not found, creating demo session")
-        const defaultWallet = localStorage.getItem("whiteboard-recipient-wallet") || "DemoWallet123456789"
-        localStorage.setItem(`session-wallet-${sessionId}`, defaultWallet)
-        foundWallet = defaultWallet
-        sessionFound = true
-
-        toast({
-          title: "demo session created",
-          description: "this is a demo session. create proper sessions from the dashboard.",
-        })
-      }
-
-      setStreamerWallet(foundWallet)
-      setSessionExists(sessionFound)
-      setIsCheckingSession(false)
-
-      console.log("Final session state:", { sessionFound, foundWallet })
     }
 
     validateSession()
@@ -128,33 +76,39 @@ export default function ViewPage() {
 
   // Add useEffect to check for session deletion in real-time
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || !sessionExists) return
 
-    const checkSessionStatus = () => {
-      const deletedData = localStorage.getItem(`session-deleted-${sessionId}`)
-      if (deletedData) {
-        const deleted = JSON.parse(deletedData)
-        setSessionDeleted(true)
-        setDeletedInfo(deleted)
-
-        if (!sessionDeleted) {
-          toast({
-            title: "session ended",
-            description: "this drawing session has been deleted.",
-            variant: "destructive",
-          })
+    const checkSessionStatus = async () => {
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (!data.session?.is_active) {
+            setSessionDeleted(true)
+            if (!sessionDeleted) {
+              toast({
+                title: "session ended",
+                description: "this drawing session has been deactivated.",
+                variant: "destructive",
+              })
+            }
+          }
+        } else if (response.status === 404) {
+          setSessionDeleted(true)
         }
+      } catch (error) {
+        console.error("Error checking session status:", error)
       }
     }
 
     // Check immediately
     checkSessionStatus()
 
-    // Check every 2 seconds for real-time updates
-    const interval = setInterval(checkSessionStatus, 2000)
+    // Check every 10 seconds for real-time updates
+    const interval = setInterval(checkSessionStatus, 10000)
 
     return () => clearInterval(interval)
-  }, [sessionId, sessionDeleted, toast])
+  }, [sessionId, sessionExists, sessionDeleted, toast])
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -221,11 +175,6 @@ export default function ViewPage() {
           <Link href="/">
             <Button className="pump-button text-black font-semibold">go home</Button>
           </Link>
-          <div className="text-xs text-gray-500">
-            <p>Debug info:</p>
-            <p>Session ID: {sessionId}</p>
-            <p>Streamer Wallet: {streamerWallet || "Not found"}</p>
-          </div>
         </div>
       </div>
     )
@@ -239,12 +188,7 @@ export default function ViewPage() {
         <p className="text-gray-400 mb-6">
           session ID: <span className="font-mono">{sessionId}</span>
         </p>
-        <p className="text-gray-400 mb-6">this drawing session has been deleted and is no longer active.</p>
-        {deletedInfo && (
-          <p className="text-xs text-gray-500 mb-6">
-            session ended on {new Date(deletedInfo.deletedAt).toLocaleString()}
-          </p>
-        )}
+        <p className="text-gray-400 mb-6">this drawing session has been deactivated and is no longer active.</p>
         <div className="space-y-4">
           <Link href="/">
             <Button className="pump-button text-black font-semibold">go home</Button>
@@ -338,9 +282,9 @@ export default function ViewPage() {
           <p className="text-gray-400">
             session: <span className="pump-text-gradient">{sessionId}</span>
           </p>
-          {streamerWallet && (
+          {sessionData?.streamer_wallet && (
             <p className="text-xs text-gray-500 mt-1">
-              streamer wallet: {streamerWallet.slice(0, 8)}...{streamerWallet.slice(-4)}
+              streamer wallet: {sessionData.streamer_wallet.slice(0, 8)}...{sessionData.streamer_wallet.slice(-4)}
             </p>
           )}
         </div>
@@ -404,7 +348,7 @@ export default function ViewPage() {
 
       <div className="mt-6 text-center">
         <p className="text-gray-500 text-sm">
-          this whiteboard updates in real-time as viewers purchase tokens and draw. display this view on your stream!
+          this whiteboard syncs in real-time with the database. drawings from viewers appear here automatically!
         </p>
         <p className="text-gray-600 text-xs mt-2">
           made with ❤️ by <span className="pump-text-gradient">D3vCav3</span> • powered by draw.fun • 50/50 revenue split

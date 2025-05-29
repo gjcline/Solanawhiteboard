@@ -55,7 +55,7 @@ export class UserTokenService {
       let bundleTokens = 0
       let nukeTokens = 0
 
-      if (tokenType === "line") {
+      if (tokenType === "line" || tokenType === "single") {
         lineTokens = quantity
       } else if (tokenType === "bundle") {
         bundleTokens = quantity
@@ -67,7 +67,7 @@ export class UserTokenService {
         // Record exists, update it
         console.log("📝 Updating existing token record")
 
-        if (tokenType === "line") {
+        if (tokenType === "line" || tokenType === "single") {
           await sql`
             UPDATE user_tokens 
             SET line_tokens = line_tokens + ${quantity}

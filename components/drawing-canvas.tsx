@@ -12,11 +12,12 @@ import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
 // How often to save/update the canvas (in milliseconds)
-const UPDATE_INTERVAL = 500
+const UPDATE_INTERVAL = 1000
 
 interface UserTokens {
   lines: number
   nukes: number
+  bundle_tokens?: number
 }
 
 interface DrawingCanvasProps {
@@ -42,13 +43,6 @@ export default function DrawingCanvas({
   onTokenUsed,
   isFullscreen = false,
 }: DrawingCanvasProps) {
-  // Storage keys for the canvas data
-  const STORAGE_KEY = sessionId ? `whiteboard-canvas-data-${sessionId}` : "whiteboard-canvas-data"
-  const LOCAL_STORAGE_KEY = sessionId
-    ? `whiteboard-local-canvas-${sessionId}-${walletAddress?.slice(0, 8)}`
-    : "whiteboard-local-canvas"
-  const NUKE_STORAGE_KEY = sessionId ? `whiteboard-nuke-${sessionId}` : "whiteboard-nuke"
-
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [ctx, setCtx] = useState<CanvasRenderingContext2D | null>(null)
@@ -61,6 +55,7 @@ export default function DrawingCanvas({
   const lastPositionRef = useRef({ x: 0, y: 0 })
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const saveTimerRef = useRef<NodeJS.Timeout | null>(null)
   const { toast } = useToast()
 
   // Add new props and state for session validation
@@ -73,7 +68,7 @@ export default function DrawingCanvas({
     const container = containerRef.current
     if (!canvas || !container) return
 
-    const updateCanvasSize = () => {
+    const updateCanvasSize = async () => {
       // Store current drawing before resizing
       const currentImageData = ctx ? ctx.getImageData(0, 0, canvas.width, canvas.height) : null
 
@@ -109,13 +104,8 @@ export default function DrawingCanvas({
             context.drawImage(tempCanvas, 0, 0, newWidth, newHeight)
           }
         } else {
-          // Load from storage if no current image
-          if (isReadOnly) {
-            loadCanvasFromStorage(canvas, context, STORAGE_KEY)
-          } else {
-            // For draw page, load from local storage first
-            loadCanvasFromStorage(canvas, context, LOCAL_STORAGE_KEY)
-          }
+          // Load from server if no current image
+          await loadCanvasFromServer(canvas, context)
         }
       }
     }
@@ -141,79 +131,99 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, color, brushSize, isReadOnly, LOCAL_STORAGE_KEY, STORAGE_KEY])
+  }, [isFullscreen, color, brushSize, sessionId])
 
-  // Update canvas size when fullscreen prop changes
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) return
+  // Load canvas data from server
+  const loadCanvasFromServer = async (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) => {
+    if (!sessionId) return
 
-    // Force canvas resize when fullscreen state changes
-    setTimeout(() => {
-      const containerRect = container.getBoundingClientRect()
-      const newWidth = containerRect.width
-      const newHeight = isFullscreen ? containerRect.height : Math.max(500, containerRect.height)
-
-      if (canvas.width !== newWidth || canvas.height !== newHeight) {
-        const currentImageData = ctx ? ctx.getImageData(0, 0, canvas.width, canvas.height) : null
-
-        canvas.width = newWidth
-        canvas.height = newHeight
-
-        if (ctx) {
-          ctx.lineCap = "round"
-          ctx.lineJoin = "round"
-          ctx.strokeStyle = color
-          ctx.lineWidth = brushSize[0]
-
-          if (currentImageData) {
-            const tempCanvas = document.createElement("canvas")
-            const tempCtx = tempCanvas.getContext("2d")
-            if (tempCtx) {
-              tempCanvas.width = currentImageData.width
-              tempCanvas.height = currentImageData.height
-              tempCtx.putImageData(currentImageData, 0, 0)
-              ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight)
-            }
-          } else {
-            if (isReadOnly) {
-              loadCanvasFromStorage(canvas, ctx, STORAGE_KEY)
-            } else {
-              loadCanvasFromStorage(canvas, ctx, LOCAL_STORAGE_KEY)
-            }
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/canvas`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.canvasData) {
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.onload = () => {
+            context.clearRect(0, 0, canvas.width, canvas.height)
+            context.drawImage(img, 0, 0, canvas.width, canvas.height)
           }
+          img.src = data.canvasData
         }
       }
-    }, 100)
-  }, [isFullscreen, isReadOnly, LOCAL_STORAGE_KEY, STORAGE_KEY])
+    } catch (error) {
+      console.error("Error loading canvas from server:", error)
+    }
+  }
 
-  // Check for nuke effects
+  // Save canvas data to server
+  const saveCanvasToServer = async () => {
+    if (!sessionId || !canvasRef.current || isReadOnly) return
+
+    try {
+      const dataUrl = canvasRef.current.toDataURL("image/png")
+      await fetch(`/api/sessions/${sessionId}/canvas`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ canvasData: dataUrl }),
+      })
+    } catch (error) {
+      console.error("Error saving canvas to server:", error)
+    }
+  }
+
+  // Set up periodic canvas sync for read-only views
   useEffect(() => {
-    if (isReadOnly) {
-      const checkForNuke = setInterval(() => {
-        const nukeData = localStorage.getItem(NUKE_STORAGE_KEY)
-        if (nukeData) {
-          const nuke = JSON.parse(nukeData)
-          const timeElapsed = Date.now() - nuke.timestamp
-          const timeLeft = 10000 - timeElapsed // 10 seconds
+    if (isReadOnly && sessionId) {
+      const syncCanvas = async () => {
+        if (canvasRef.current && ctx) {
+          await loadCanvasFromServer(canvasRef.current, ctx)
+        }
+      }
 
-          if (timeLeft > 0) {
-            setNukeEffect({
-              isActive: true,
-              user: nuke.user,
-              timeLeft: Math.ceil(timeLeft / 1000),
-            })
-          } else {
-            setNukeEffect({ isActive: false, user: "", timeLeft: 0 })
-            localStorage.removeItem(NUKE_STORAGE_KEY)
+      // Initial load
+      syncCanvas()
+
+      // Periodic sync
+      const interval = setInterval(syncCanvas, UPDATE_INTERVAL)
+      return () => clearInterval(interval)
+    }
+  }, [isReadOnly, sessionId, ctx])
+
+  // Check for nuke effects from server
+  useEffect(() => {
+    if (isReadOnly && sessionId) {
+      const checkForNuke = setInterval(async () => {
+        try {
+          // In a real implementation, you'd have a nuke effects API
+          // For now, we'll use localStorage as a bridge
+          const nukeData = localStorage.getItem(`whiteboard-nuke-${sessionId}`)
+          if (nukeData) {
+            const nuke = JSON.parse(nukeData)
+            const timeElapsed = Date.now() - nuke.timestamp
+            const timeLeft = 10000 - timeElapsed // 10 seconds
+
+            if (timeLeft > 0) {
+              setNukeEffect({
+                isActive: true,
+                user: nuke.user,
+                timeLeft: Math.ceil(timeLeft / 1000),
+              })
+            } else {
+              setNukeEffect({ isActive: false, user: "", timeLeft: 0 })
+              localStorage.removeItem(`whiteboard-nuke-${sessionId}`)
+            }
           }
+        } catch (error) {
+          console.error("Error checking for nuke effects:", error)
         }
       }, 100)
 
       return () => clearInterval(checkForNuke)
     }
-  }, [isReadOnly, NUKE_STORAGE_KEY])
+  }, [isReadOnly, sessionId])
 
   // Update nuke timer
   useEffect(() => {
@@ -238,87 +248,33 @@ export default function DrawingCanvas({
     }
   }, [color, brushSize, ctx])
 
-  // Set up periodic saving of canvas data
+  // Check for session deletion from server
   useEffect(() => {
-    if (isReadOnly) {
-      const checkForUpdates = setInterval(() => {
-        if (canvasRef.current && ctx) {
-          loadCanvasFromStorage(canvasRef.current, ctx, STORAGE_KEY)
-        }
-      }, UPDATE_INTERVAL)
+    if (!sessionId || isReadOnly) return
 
-      return () => clearInterval(checkForUpdates)
-    }
-  }, [isReadOnly, ctx, STORAGE_KEY])
-
-  // Modified to specify which storage key to use
-  const loadCanvasFromStorage = (canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, storageKey: string) => {
-    const savedData = localStorage.getItem(storageKey)
-    if (savedData) {
-      const img = new Image()
-      img.crossOrigin = "anonymous"
-      img.onload = () => {
-        context.clearRect(0, 0, canvas.width, canvas.height)
-        context.drawImage(img, 0, 0, canvas.width, canvas.height)
-      }
-      img.src = savedData
-    }
-  }
-
-  // Save to both local and shared storage
-  const saveDrawing = (lineOnly = false) => {
-    if (!canvasRef.current) return
-
-    // Get the current drawing as data URL
-    const dataUrl = canvasRef.current.toDataURL("image/png")
-
-    // Always save to local storage to maintain the user's local state
-    localStorage.setItem(LOCAL_STORAGE_KEY, dataUrl)
-
-    if (!lineOnly) {
-      // For nukes, we save directly to shared storage
-      localStorage.setItem(STORAGE_KEY, dataUrl)
-      return
-    }
-
-    // For lines, we need to merge with the shared state
-    const savedData = localStorage.getItem(STORAGE_KEY)
-
-    if (savedData) {
-      // Create a temporary canvas for merging
-      const tempCanvas = document.createElement("canvas")
-      tempCanvas.width = canvasRef.current.width
-      tempCanvas.height = canvasRef.current.height
-      const tempCtx = tempCanvas.getContext("2d")
-
-      if (tempCtx) {
-        // Load the shared state
-        const sharedImg = new Image()
-        sharedImg.crossOrigin = "anonymous"
-        sharedImg.onload = () => {
-          // Draw the shared state
-          tempCtx.drawImage(sharedImg, 0, 0, tempCanvas.width, tempCanvas.height)
-
-          // Get the current line as a separate image
-          const currentImg = new Image()
-          currentImg.crossOrigin = "anonymous"
-          currentImg.onload = () => {
-            // Draw the current line on top
-            tempCtx.drawImage(currentImg, 0, 0)
-
-            // Save the merged result to shared storage
-            const mergedDataUrl = tempCanvas.toDataURL("image/png")
-            localStorage.setItem(STORAGE_KEY, mergedDataUrl)
+    const checkSessionStatus = async () => {
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (!data.session?.is_active) {
+            setSessionDeleted(true)
           }
-          currentImg.src = dataUrl
+        } else if (response.status === 404) {
+          setSessionDeleted(true)
         }
-        sharedImg.src = savedData
+      } catch (error) {
+        console.error("Error checking session status:", error)
       }
-    } else {
-      // If no shared state exists yet, just save the current drawing
-      localStorage.setItem(STORAGE_KEY, dataUrl)
     }
-  }
+
+    // Check immediately
+    checkSessionStatus()
+
+    // Check every 5 seconds
+    const interval = setInterval(checkSessionStatus, 5000)
+    return () => clearInterval(interval)
+  }, [sessionId, isReadOnly])
 
   const getPointerPosition = (
     e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
@@ -340,26 +296,6 @@ export default function DrawingCanvas({
 
     return { x, y }
   }
-
-  // Add useEffect to check for session deletion
-  useEffect(() => {
-    if (!sessionId || isReadOnly) return
-
-    const checkSessionStatus = () => {
-      const deletedData = localStorage.getItem(`session-deleted-${sessionId}`)
-      if (deletedData) {
-        setSessionDeleted(true)
-      }
-    }
-
-    // Check immediately
-    checkSessionStatus()
-
-    // Check every 2 seconds for real-time updates
-    const interval = setInterval(checkSessionStatus, 2000)
-
-    return () => clearInterval(interval)
-  }, [sessionId, isReadOnly])
 
   // Server-side token validation before allowing drawing
   const validateTokenBeforeDrawing = async (): Promise<boolean> => {
@@ -515,8 +451,13 @@ export default function DrawingCanvas({
 
     ctx.closePath()
 
-    // Save the drawing to both local and shared storage
-    saveDrawing(true) // true means it's a line (not a nuke)
+    // Save the drawing to server with a small delay to batch updates
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveCanvasToServer()
+    }, 500)
 
     // Use setTimeout to defer the token usage callback to avoid setState during render
     setTimeout(() => {
@@ -544,12 +485,9 @@ export default function DrawingCanvas({
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Save the cleared state to local storage only
-    localStorage.setItem(LOCAL_STORAGE_KEY, canvas.toDataURL("image/png"))
-
     toast({
       title: "canvas cleared",
-      description: "your local canvas has been cleared. this doesn't affect the shared view.",
+      description: "your local view has been cleared. this doesn't affect the shared canvas.",
     })
   }
 
@@ -617,15 +555,17 @@ export default function DrawingCanvas({
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Save nuke effect data
+    // Save nuke effect data (temporary localStorage bridge)
     const nukeData = {
       user: walletAddress.slice(0, 8) + "..." + walletAddress.slice(-4),
       timestamp: Date.now(),
     }
-    localStorage.setItem(NUKE_STORAGE_KEY, JSON.stringify(nukeData))
+    if (sessionId) {
+      localStorage.setItem(`whiteboard-nuke-${sessionId}`, JSON.stringify(nukeData))
+    }
 
-    // Save the cleared canvas to both local and shared storage
-    saveDrawing(false) // false means it's a nuke (not a line)
+    // Save the cleared canvas to server immediately
+    await saveCanvasToServer()
 
     // Use setTimeout to defer the token usage callback to avoid setState during render
     setTimeout(() => {
@@ -722,7 +662,7 @@ export default function DrawingCanvas({
                 variant="outline"
                 size="icon"
                 onClick={clearLocalCanvas}
-                title="Clear Local Canvas"
+                title="Clear Local View"
                 className="border-gray-700 text-gray-300 hover:bg-gray-800"
               >
                 <Trash2 className="h-4 w-4" />
@@ -778,7 +718,7 @@ export default function DrawingCanvas({
       {/* Only show this text in non-fullscreen read-only mode */}
       {isReadOnly && !isFullscreen && (
         <div className="mt-4 text-center text-sm text-gray-500">
-          this is a view-only mirror of the drawing board. viewers can draw by visiting the draw URL.
+          this canvas syncs in real-time with the database. drawings from viewers appear here automatically.
         </div>
       )}
     </div>

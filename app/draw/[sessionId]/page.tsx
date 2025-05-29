@@ -34,23 +34,27 @@ export default function DrawPage() {
   // Initialize user tokens hook with proper error handling
   const { tokens, useToken, addTokens, loading: tokensLoading } = useUserTokens(sessionId, walletAddress)
 
-  const handleTokenUsage = useCallback(async () => {
-    if (tokenToUse && useToken) {
-      try {
-        await useToken(tokenToUse)
-        setTokenToUse(null)
-      } catch (error) {
-        console.error("Error using token:", error)
-        setTokenToUse(null)
+  const handleTokenUsage = useCallback(
+    async (tokenType: "line" | "nuke" | null) => {
+      if (useToken && tokenType) {
+        try {
+          await useToken(tokenType)
+        } catch (error) {
+          console.error("Error using token:", error)
+        }
       }
-    }
-  }, [tokenToUse, useToken])
+    },
+    [useToken],
+  )
 
   useEffect(() => {
-    handleTokenUsage()
-  }, [handleTokenUsage])
+    if (tokenToUse) {
+      handleTokenUsage(tokenToUse)
+      setTokenToUse(null)
+    }
+  }, [tokenToUse, handleTokenUsage])
 
-  // Validate session exists
+  // Validate session exists via API
   useEffect(() => {
     if (!sessionId) {
       setIsLoading(false)
@@ -88,14 +92,19 @@ export default function DrawPage() {
     validateSession()
   }, [sessionId])
 
-  // Check for session deletion
+  // Check for session deletion via API
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || !sessionExists) return
 
-    const checkSessionStatus = () => {
+    const checkSessionStatus = async () => {
       try {
-        const deletedData = localStorage.getItem(`session-deleted-${sessionId}`)
-        if (deletedData) {
+        const response = await fetch(`/api/sessions/${sessionId}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (!data.session?.is_active) {
+            setSessionDeleted(true)
+          }
+        } else if (response.status === 404) {
           setSessionDeleted(true)
         }
       } catch (error) {
@@ -104,9 +113,9 @@ export default function DrawPage() {
     }
 
     checkSessionStatus()
-    const interval = setInterval(checkSessionStatus, 2000)
+    const interval = setInterval(checkSessionStatus, 10000) // Check every 10 seconds
     return () => clearInterval(interval)
-  }, [sessionId])
+  }, [sessionId, sessionExists])
 
   const handleWalletConnected = (address: string, balance: number) => {
     try {
@@ -243,7 +252,7 @@ export default function DrawPage() {
               </p>
             </div>
             <div className="text-right">
-              <div className="text-sm text-gray-400">mainnet • solana</div>
+              <div className="text-sm text-gray-400">live session • database synced</div>
               <div className="text-xs text-gray-500">powered by draw.fun</div>
             </div>
           </div>

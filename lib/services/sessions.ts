@@ -1,4 +1,4 @@
-import { sql } from "../database"
+import { sql } from "@vercel/postgres"
 
 export interface Session {
   id: string
@@ -266,6 +266,69 @@ export class SessionService {
         ON CONFLICT (session_id)
         DO UPDATE SET nukes_used = session_stats.nukes_used + 1
       `
+    }
+  }
+
+  static async createSession(data: {
+    name: string
+    streamerWallet: string
+    userId?: string
+  }) {
+    try {
+      const sessionId = Math.random().toString(36).substring(2, 15)
+
+      const result = await sql`
+        INSERT INTO sessions (id, name, streamer_wallet, user_id, is_active, created_at)
+        VALUES (${sessionId}, ${data.name}, ${data.streamerWallet}, ${data.userId}, true, NOW())
+        RETURNING *
+      `
+
+      return result.rows[0]
+    } catch (error) {
+      console.error("Error creating session:", error)
+      throw error
+    }
+  }
+
+  static async getSession(sessionId: string) {
+    try {
+      const result = await sql`
+        SELECT * FROM sessions 
+        WHERE id = ${sessionId} AND is_active = true
+      `
+
+      return result.rows[0] || null
+    } catch (error) {
+      console.error("Error getting session:", error)
+      return null
+    }
+  }
+
+  static async saveCanvasData(sessionId: string, canvasData: string) {
+    try {
+      await sql`
+        UPDATE sessions 
+        SET canvas_data = ${canvasData}, updated_at = NOW()
+        WHERE id = ${sessionId}
+      `
+      return true
+    } catch (error) {
+      console.error("Error saving canvas data:", error)
+      return false
+    }
+  }
+
+  static async getCanvasData(sessionId: string) {
+    try {
+      const result = await sql`
+        SELECT canvas_data FROM sessions 
+        WHERE id = ${sessionId}
+      `
+
+      return result.rows[0]?.canvas_data || null
+    } catch (error) {
+      console.error("Error getting canvas data:", error)
+      return null
     }
   }
 }
