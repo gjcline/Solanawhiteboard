@@ -21,6 +21,9 @@ const SOLANA_RPC_ENDPOINTS = [
   "https://solana.public-rpc.com",
 ]
 
+// Commitment levels to try
+const COMMITMENT_LEVELS = ["processed", "confirmed", "finalized"]
+
 // For direct Web3.js integration
 let Connection: any = null
 let PublicKey: any = null
@@ -154,23 +157,12 @@ export default function WalletConnection({
     }
   }
 
-  // Method 1: Direct RPC call
-  const fetchBalanceDirectRPC = async (address: string, rpcUrl: string): Promise<number> => {
-    addDebugInfo(`[Direct RPC] Fetching from ${rpcUrl}`)
+  // Method 1: Server-side API route (bypasses CORS)
+  const fetchBalanceServerSide = async (address: string): Promise<number> => {
+    addDebugInfo(`[Server] Fetching balance via server API`)
 
     try {
-      const response = await fetch(rpcUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getBalance",
-          params: [address],
-        }),
-      })
+      const response = await fetch(`/api/wallet/balance?address=${address}&network=${SOLANA_NETWORK}`)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -179,46 +171,95 @@ export default function WalletConnection({
       const data = await response.json()
 
       if (data.error) {
-        throw new Error(`RPC Error: ${data.error.message}`)
+        throw new Error(`API Error: ${data.error}`)
       }
 
-      if (data.result && typeof data.result.value === "number") {
-        const balanceInSOL = data.result.value / LAMPORTS_PER_SOL
-        addDebugInfo(`[Direct RPC] Balance: ${balanceInSOL} SOL`)
+      if (typeof data.balance === "number") {
+        const balanceInSOL = data.balance
+        addDebugInfo(`[Server] Balance: ${balanceInSOL} SOL`)
         return balanceInSOL
       }
 
       throw new Error("Invalid response format")
     } catch (error) {
-      addDebugInfo(`[Direct RPC] Error: ${error}`)
+      addDebugInfo(`[Server] Error: ${error}`)
       throw error
     }
   }
 
-  // Method 2: Web3.js
+  // Method 2: Direct RPC call with different commitment levels
+  const fetchBalanceDirectRPC = async (address: string, rpcUrl: string): Promise<number> => {
+    // Try each commitment level
+    for (const commitment of COMMITMENT_LEVELS) {
+      addDebugInfo(`[Direct RPC] Trying ${rpcUrl} with ${commitment} commitment`)
+
+      try {
+        const response = await fetch(rpcUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getBalance",
+            params: [address, { commitment }],
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+
+        if (data.error) {
+          throw new Error(`RPC Error: ${data.error.message}`)
+        }
+
+        if (data.result && typeof data.result.value === "number") {
+          const balanceInSOL = data.result.value / LAMPORTS_PER_SOL
+          addDebugInfo(`[Direct RPC] Balance: ${balanceInSOL} SOL (${commitment})`)
+          return balanceInSOL
+        }
+      } catch (error) {
+        addDebugInfo(`[Direct RPC] Error with ${commitment}: ${error}`)
+        // Continue to next commitment level
+      }
+    }
+
+    throw new Error("All commitment levels failed")
+  }
+
+  // Method 3: Web3.js with different commitment levels
   const fetchBalanceWeb3 = async (address: string, rpcUrl: string): Promise<number> => {
     if (!web3Loaded || !Connection || !PublicKey) {
       addDebugInfo("[Web3] Web3.js not loaded, skipping")
       throw new Error("Web3.js not loaded")
     }
 
-    addDebugInfo(`[Web3] Fetching via Web3.js from ${rpcUrl}`)
+    // Try each commitment level
+    for (const commitment of COMMITMENT_LEVELS) {
+      addDebugInfo(`[Web3] Trying ${rpcUrl} with ${commitment} commitment`)
 
-    try {
-      const connection = new Connection(rpcUrl, "confirmed")
-      const pubKey = new PublicKey(address)
-      const balanceInLamports = await connection.getBalance(pubKey)
-      const balanceInSOL = balanceInLamports / LAMPORTS_PER_SOL
+      try {
+        const connection = new Connection(rpcUrl, commitment as any)
+        const pubKey = new PublicKey(address)
+        const balanceInLamports = await connection.getBalance(pubKey)
+        const balanceInSOL = balanceInLamports / LAMPORTS_PER_SOL
 
-      addDebugInfo(`[Web3] Balance: ${balanceInSOL} SOL`)
-      return balanceInSOL
-    } catch (error) {
-      addDebugInfo(`[Web3] Error: ${error}`)
-      throw error
+        addDebugInfo(`[Web3] Balance: ${balanceInSOL} SOL (${commitment})`)
+        return balanceInSOL
+      } catch (error) {
+        addDebugInfo(`[Web3] Error with ${commitment}: ${error}`)
+        // Continue to next commitment level
+      }
     }
+
+    throw new Error("All commitment levels failed")
   }
 
-  // Method 3: Phantom API
+  // Method 4: Phantom API
   const fetchBalancePhantom = async (): Promise<number> => {
     const phantom = (window as any).phantom?.solana
     if (!phantom || !phantom.isConnected) {
@@ -245,50 +286,6 @@ export default function WalletConnection({
     }
   }
 
-  // Method 4: CORS Proxy
-  const fetchBalanceCorsProxy = async (address: string): Promise<number> => {
-    // Using a CORS proxy service
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(SOLANA_RPC_ENDPOINTS[0])}`
-
-    addDebugInfo(`[CORS Proxy] Fetching via proxy`)
-
-    try {
-      const response = await fetch(proxyUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getBalance",
-          params: [address],
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-
-      if (data.error) {
-        throw new Error(`RPC Error: ${data.error.message}`)
-      }
-
-      if (data.result && typeof data.result.value === "number") {
-        const balanceInSOL = data.result.value / LAMPORTS_PER_SOL
-        addDebugInfo(`[CORS Proxy] Balance: ${balanceInSOL} SOL`)
-        return balanceInSOL
-      }
-
-      throw new Error("Invalid response format")
-    } catch (error) {
-      addDebugInfo(`[CORS Proxy] Error: ${error}`)
-      throw error
-    }
-  }
-
   // Method 5: Hardcoded test balance (last resort)
   const getTestBalance = (): number => {
     const testBalance = 1.5
@@ -308,6 +305,7 @@ export default function WalletConnection({
     try {
       // Try all methods in sequence
       const methods = [
+        { name: "server", fn: async () => fetchBalanceServerSide(address) },
         {
           name: "direct",
           fn: async () => {
@@ -350,7 +348,6 @@ export default function WalletConnection({
           },
         },
         { name: "phantom", fn: fetchBalancePhantom },
-        { name: "corsProxy", fn: async () => fetchBalanceCorsProxy(address) },
         { name: "test", fn: getTestBalance },
       ]
 
