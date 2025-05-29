@@ -102,47 +102,55 @@ export default function WalletConnection({
   }
 
   const fetchBalanceFromRPC = async (address: string, rpcUrl: string): Promise<number> => {
-    console.log(`Fetching balance from ${rpcUrl} for address:`, address)
+    console.log(`🔍 Fetching balance from ${rpcUrl} for address:`, address)
 
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getBalance",
-        params: [address],
-      }),
-    })
+    try {
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getBalance",
+          params: [address],
+        }),
+      })
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      console.log(`📡 Response status from ${rpcUrl}:`, response.status)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log(`📊 Balance response from ${rpcUrl}:`, data)
+
+      if (data.error) {
+        throw new Error(`RPC Error: ${data.error.message}`)
+      }
+
+      if (data.result && typeof data.result.value === "number") {
+        const balanceInSOL = data.result.value / 1000000000
+        console.log(`✅ Balance fetched: ${balanceInSOL} SOL from ${rpcUrl}`)
+        return balanceInSOL
+      }
+
+      throw new Error("Invalid response format")
+    } catch (error) {
+      console.error(`❌ Error fetching from ${rpcUrl}:`, error)
+      throw error
     }
-
-    const data = await response.json()
-    console.log(`Balance response from ${rpcUrl}:`, data)
-
-    if (data.error) {
-      throw new Error(`RPC Error: ${data.error.message}`)
-    }
-
-    if (data.result && typeof data.result.value === "number") {
-      const balanceInSOL = data.result.value / 1000000000
-      console.log(`Balance fetched: ${balanceInSOL} SOL`)
-      return balanceInSOL
-    }
-
-    throw new Error("Invalid response format")
   }
 
   const fetchBalance = async (address: string): Promise<number> => {
     if (!address) {
-      console.error("No address provided for balance fetch")
+      console.error("❌ No address provided for balance fetch")
       return 0
     }
 
+    console.log(`🚀 Starting balance fetch for address: ${address}`)
     setIsRefreshingBalance(true)
 
     try {
@@ -154,19 +162,21 @@ export default function WalletConnection({
         const rpcUrl = SOLANA_RPC_ENDPOINTS[rpcIndex]
 
         try {
+          console.log(`🔄 Trying RPC endpoint ${i + 1}/${SOLANA_RPC_ENDPOINTS.length}: ${rpcUrl}`)
           const balanceInSOL = await fetchBalanceFromRPC(address, rpcUrl)
 
-          // Update state
+          // Update state immediately
+          console.log(`💰 Setting balance to: ${balanceInSOL} SOL`)
           setBalance(balanceInSOL)
           onBalanceUpdate(balanceInSOL)
 
           // Update successful RPC endpoint
           setCurrentRpcIndex(rpcIndex)
 
-          console.log(`Successfully fetched balance: ${balanceInSOL} SOL from ${rpcUrl}`)
+          console.log(`✅ Successfully fetched balance: ${balanceInSOL} SOL from ${rpcUrl}`)
           return balanceInSOL
         } catch (error) {
-          console.warn(`Failed to fetch from ${rpcUrl}:`, error)
+          console.warn(`⚠️ Failed to fetch from ${rpcUrl}:`, error)
           lastError = error as Error
           continue
         }
@@ -175,7 +185,7 @@ export default function WalletConnection({
       // All RPC endpoints failed
       throw lastError || new Error("All RPC endpoints failed")
     } catch (error) {
-      console.error("Failed to fetch balance from all endpoints:", error)
+      console.error("❌ Failed to fetch balance from all endpoints:", error)
 
       // Set balance to 0 and show error
       setBalance(0)
@@ -207,27 +217,30 @@ export default function WalletConnection({
 
     try {
       const phantom = (window as any).phantom.solana
-      console.log("Attempting to connect to Phantom...")
+      console.log("🔌 Attempting to connect to Phantom...")
 
       // Request connection
       const response = await phantom.connect({ onlyIfTrusted: false })
       const address = response.publicKey.toString()
 
-      console.log("Phantom connected successfully:", address)
+      console.log("✅ Phantom connected successfully:", address)
 
       setWalletAddress(address)
       setIsConnected(true)
 
-      // Fetch balance immediately after connection
-      const walletBalance = await fetchBalance(address)
-      onWalletConnected(address, walletBalance)
+      // Fetch balance immediately after connection with a small delay
+      console.log("⏳ Fetching balance after connection...")
+      setTimeout(async () => {
+        const walletBalance = await fetchBalance(address)
+        onWalletConnected(address, walletBalance)
+      }, 500)
 
       toast({
         title: "wallet connected!",
         description: `connected to mainnet: ${address.slice(0, 8)}...${address.slice(-8)}`,
       })
     } catch (error: any) {
-      console.error("Connection error:", error)
+      console.error("❌ Connection error:", error)
 
       let errorMessage = "failed to connect to phantom wallet."
       if (error.code === 4001) {
