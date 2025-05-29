@@ -1,4 +1,5 @@
 import { sql } from "../database"
+import { getTokenValue } from "../pricing"
 
 export interface TokenEscrow {
   id: string
@@ -10,6 +11,7 @@ export interface TokenEscrow {
   total_amount_paid: number
   amount_released: number
   escrow_wallet: string
+  purchase_type: string
   status: "active" | "closed" | "refunded"
   created_at: Date
   updated_at: Date
@@ -20,20 +22,21 @@ export interface PendingRelease {
   escrow_id: string
   session_id: string
   user_wallet: string
-  token_type: "line" | "nuke"
+  token_type: "single" | "bundle" | "nuke"
   amount_streamer: number
   amount_devcave: number
   created_at: Date
 }
 
 export class EscrowService {
-  // Create escrow record (no blockchain transaction yet)
+  // Create escrow record with purchase type tracking
   static async createEscrow(data: {
     session_id: string
     user_wallet: string
     total_tokens_purchased: number
     total_amount_paid: number
     escrow_wallet: string
+    purchase_type: "single" | "bundle" | "nuke"
   }): Promise<TokenEscrow> {
     const id = Math.random().toString(36).substring(2, 14)
 
@@ -41,24 +44,24 @@ export class EscrowService {
       INSERT INTO token_escrows (
         id, session_id, user_wallet, total_tokens_purchased, 
         tokens_used, tokens_remaining, total_amount_paid, 
-        amount_released, escrow_wallet, status
+        amount_released, escrow_wallet, purchase_type, status
       )
       VALUES (
         ${id}, ${data.session_id}, ${data.user_wallet}, ${data.total_tokens_purchased},
         0, ${data.total_tokens_purchased}, ${data.total_amount_paid},
-        0, ${data.escrow_wallet}, 'active'
+        0, ${data.escrow_wallet}, ${data.purchase_type}, 'active'
       )
       RETURNING *
     `
     return result[0]
   }
 
-  // Queue token usage for batch processing
+  // Queue token usage with proper value calculation
   static async queueTokenUsage(
     escrowId: string,
     sessionId: string,
     userWallet: string,
-    tokenType: "line" | "nuke",
+    tokenUsed: "single" | "bundle" | "nuke",
   ): Promise<void> {
     // Get escrow details
     const escrow = await sql`
@@ -69,9 +72,12 @@ export class EscrowService {
       throw new Error("No tokens available")
     }
 
-    const pricePerToken = escrow[0].total_amount_paid / escrow[0].total_tokens_purchased
-    const streamerAmount = pricePerToken * 0.5
-    const devcaveAmount = pricePerToken * 0.5
+    // Use the correct token value for payout (not purchase price)
+    const tokenValue = getTokenValue(tokenUsed)
+    const streamerAmount = tokenValue * 0.5
+    const devcaveAmount = tokenValue * 0.5
+
+    console.log(`💰 Token usage: ${tokenUsed} token = ${tokenValue} SOL payout`)
 
     // Add to pending releases queue
     await sql`
@@ -81,7 +87,7 @@ export class EscrowService {
       )
       VALUES (
         ${Math.random().toString(36).substring(2, 14)},
-        ${escrowId}, ${sessionId}, ${userWallet}, ${tokenType},
+        ${escrowId}, ${sessionId}, ${userWallet}, ${tokenUsed},
         ${streamerAmount}, ${devcaveAmount}
       )
     `
@@ -91,13 +97,13 @@ export class EscrowService {
       UPDATE token_escrows 
       SET tokens_used = tokens_used + 1,
           tokens_remaining = tokens_remaining - 1,
-          amount_released = amount_released + ${pricePerToken},
+          amount_released = amount_released + ${tokenValue},
           updated_at = NOW()
       WHERE id = ${escrowId}
     `
   }
 
-  // Process batched releases (called every 30 seconds)
+  // Rest of the methods remain the same...
   static async processPendingReleases(): Promise<void> {
     // Get all pending releases grouped by session
     const pendingBySession = await sql`
@@ -165,31 +171,6 @@ export class EscrowService {
 
     // Simulate transaction processing
     await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    // In production:
-    /*
-    const transaction = new Transaction()
-    
-    // Add instruction to send to streamer
-    transaction.add(
-      SystemProgram.transfer({
-        fromPubkey: escrowWallet,
-        toPubkey: new PublicKey(params.streamerWallet),
-        lamports: params.streamerAmount * LAMPORTS_PER_SOL
-      })
-    )
-    
-    // Add instruction to send to D3vCav3
-    transaction.add(
-      SystemProgram.transfer({
-        fromPubkey: escrowWallet,
-        toPubkey: new PublicKey(params.devcaveWallet),
-        lamports: params.devcaveAmount * LAMPORTS_PER_SOL
-      })
-    )
-    
-    const signature = await sendAndConfirmTransaction(connection, transaction, [escrowKeypair])
-    */
   }
 
   // Get active escrow for user/session
