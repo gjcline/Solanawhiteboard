@@ -331,22 +331,22 @@ export default function ViewPage() {
 
             {/* Screen shake effect */}
             <style jsx>{`
-              @keyframes screenShake {
-                0%, 100% { transform: translate(0, 0) rotate(0deg); }
-                10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
-                20% { transform: translate(2px, 1px) rotate(0.5deg); }
-                30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
-                40% { transform: translate(1px, -2px) rotate(0.5deg); }
-                50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
-                60% { transform: translate(2px, -1px) rotate(0.5deg); }
-                70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
-                80% { transform: translate(1px, 2px) rotate(0.5deg); }
-                90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
-              }
-              .fixed {
-                animation: screenShake 0.5s infinite;
-              }
-            `}</style>
+          @keyframes screenShake {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+            20% { transform: translate(2px, 1px) rotate(0.5deg); }
+            30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+            40% { transform: translate(1px, -2px) rotate(0.5deg); }
+            50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+            60% { transform: translate(2px, -1px) rotate(0.5deg); }
+            70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+            80% { transform: translate(1px, 2px) rotate(0.5deg); }
+            90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+          }
+          .fixed {
+            animation: screenShake 0.5s infinite;
+          }
+        `}</style>
           </div>
         )}
 
@@ -383,8 +383,11 @@ export default function ViewPage() {
         </div>
 
         {/* Fullscreen Canvas - takes remaining space below navbar and session ID */}
-        <div className="flex-1 p-4 pt-24">
-          <DrawingCanvas isReadOnly={true} sessionId={sessionId} isFullscreen={true} />
+        <div className="flex-1 px-4 pb-4 pt-20 flex items-center justify-center">
+          {" "}
+          {/* Adjusted padding, added flex centering */}
+          <DrawingCanvas key={isFullscreen.toString()} isReadOnly={true} sessionId={sessionId} isFullscreen={true} />{" "}
+          {/* Added key */}
         </div>
 
         {/* Bottom Info Bar */}
@@ -469,22 +472,22 @@ export default function ViewPage() {
 
           {/* Screen shake effect */}
           <style jsx>{`
-            @keyframes screenShake {
-              0%, 100% { transform: translate(0, 0) rotate(0deg); }
-              10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
-              20% { transform: translate(2px, 1px) rotate(0.5deg); }
-              30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
-              40% { transform: translate(1px, -2px) rotate(0.5deg); }
-              50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
-              60% { transform: translate(2px, -1px) rotate(0.5deg); }
-              70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
-              80% { transform: translate(1px, 2px) rotate(0.5deg); }
-              90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
-            }
-            .fixed {
-              animation: screenShake 0.5s infinite;
-            }
-          `}</style>
+        @keyframes screenShake {
+          0%, 100% { transform: translate(0, 0) rotate(0deg); }
+          10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+          20% { transform: translate(2px, 1px) rotate(0.5deg); }
+          30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+          40% { transform: translate(1px, -2px) rotate(0.5deg); }
+          50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+          60% { transform: translate(2px, -1px) rotate(0.5deg); }
+          70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+          80% { transform: translate(1px, 2px) rotate(0.5deg); }
+          90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+        }
+        .fixed {
+          animation: screenShake 0.5s infinite;
+        }
+      `}</style>
         </div>
       )}
 

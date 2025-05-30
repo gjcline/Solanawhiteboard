@@ -36,12 +36,12 @@ export default function DrawPage() {
 
   const handleTokenUsage = useCallback(
     async (tokenType: "line" | "nuke" | null) => {
-      if (useToken && tokenType) {
-        try {
+      try {
+        if (useToken && tokenType) {
           await useToken(tokenType)
-        } catch (error) {
-          console.error("Error using token:", error)
         }
+      } catch (error) {
+        console.error("Error using token:", error)
       }
     },
     [useToken],
