@@ -1,38 +1,41 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { query } from "@/lib/database"
+import { neon } from "@neondatabase/serverless"
 
-// Store nuke effect data temporarily (could be moved to database if needed for persistence)
-const nukeEffects = new Map<string, { user: string; startTime: number }>()
+const sql = neon(process.env.DATABASE_URL!)
 
 export async function GET(request: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
     const { sessionId } = params
 
-    if (!sessionId) {
-      return NextResponse.json({ error: "Session ID required" }, { status: 400 })
+    console.log(`[Nuke API GET] Checking nuke effect for session: ${sessionId}`)
+
+    // Check for active nuke effects in the last 10 seconds
+    const result = await sql`
+      SELECT nuke_user, nuke_start_time 
+      FROM sessions 
+      WHERE id = ${sessionId} 
+      AND nuke_start_time IS NOT NULL 
+      AND nuke_start_time > NOW() - INTERVAL '10 seconds'
+    `
+
+    if (result.length > 0) {
+      const nukeData = result[0]
+      const startTime = new Date(nukeData.nuke_start_time).getTime()
+      const timeElapsed = Date.now() - startTime
+      const isActive = timeElapsed < 10000 // 10 seconds
+
+      console.log(`[Nuke API GET] Found nuke effect - active: ${isActive}, elapsed: ${timeElapsed}ms`)
+
+      return NextResponse.json({
+        nukeEffect: {
+          isActive,
+          user: nukeData.nuke_user,
+          startTime,
+        },
+      })
     }
 
-    // Check if there's an active nuke effect
-    const nukeEffect = nukeEffects.get(sessionId)
-
-    if (nukeEffect) {
-      const timeElapsed = Date.now() - nukeEffect.startTime
-      const isActive = timeElapsed < 10000 // 10 second duration
-
-      if (isActive) {
-        return NextResponse.json({
-          nukeEffect: {
-            isActive: true,
-            user: nukeEffect.user,
-            startTime: nukeEffect.startTime,
-          },
-        })
-      } else {
-        // Clean up expired effect
-        nukeEffects.delete(sessionId)
-      }
-    }
-
+    console.log(`[Nuke API GET] No active nuke effect found`)
     return NextResponse.json({
       nukeEffect: {
         isActive: false,
@@ -41,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
       },
     })
   } catch (error) {
-    console.error("Error checking nuke effect:", error)
+    console.error("[Nuke API GET] Error:", error)
     return NextResponse.json({ error: "Failed to check nuke effect" }, { status: 500 })
   }
 }
@@ -49,31 +52,22 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
 export async function POST(request: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
     const { sessionId } = params
-    const body = await request.json()
-    const { user, startTime } = body
+    const { user, startTime } = await request.json()
 
-    if (!sessionId || !user || !startTime) {
-      return NextResponse.json({ error: "Session ID, user, and startTime required" }, { status: 400 })
-    }
+    console.log(`[Nuke API POST] Storing nuke effect for session: ${sessionId}, user: ${user}`)
 
-    // Verify session exists
-    const sessionResult = await query("SELECT id FROM sessions WHERE id = $1 AND is_active = true", [sessionId])
+    // Store the nuke effect in the database
+    await sql`
+      UPDATE sessions 
+      SET nuke_user = ${user}, nuke_start_time = ${new Date(startTime).toISOString()}
+      WHERE id = ${sessionId}
+    `
 
-    if (sessionResult.rows.length === 0) {
-      return NextResponse.json({ error: "Session not found or inactive" }, { status: 404 })
-    }
+    console.log(`[Nuke API POST] Successfully stored nuke effect`)
 
-    // Store nuke effect
-    nukeEffects.set(sessionId, { user, startTime })
-
-    console.log(`[Nuke API] Stored nuke effect for session ${sessionId} by user ${user}`)
-
-    return NextResponse.json({
-      success: true,
-      message: "Nuke effect stored successfully",
-    })
+    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error storing nuke effect:", error)
+    console.error("[Nuke API POST] Error:", error)
     return NextResponse.json({ error: "Failed to store nuke effect" }, { status: 500 })
   }
 }

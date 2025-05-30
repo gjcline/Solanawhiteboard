@@ -10,6 +10,13 @@ import { Copy, ExternalLink, Zap, Timer, Bomb, DollarSign, Maximize, X } from "l
 import { useToast } from "@/hooks/use-toast"
 import DrawingBackground from "@/components/drawing-background"
 
+interface NukeEffect {
+  isActive: boolean
+  user: string
+  timeLeft: number
+  startTime: number
+}
+
 export default function ViewPage() {
   const params = useParams()
   const sessionId = params.sessionId as string
@@ -18,10 +25,73 @@ export default function ViewPage() {
   const [sessionData, setSessionData] = useState<any>(null)
   const [drawUrl, setDrawUrl] = useState("")
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [nukeEffect, setNukeEffect] = useState<NukeEffect>({
+    isActive: false,
+    user: "",
+    timeLeft: 0,
+    startTime: 0,
+  })
   const { toast } = useToast()
 
   // Add new state for session status
   const [sessionDeleted, setSessionDeleted] = useState(false)
+
+  // Check for nuke effects
+  const checkNukeEffect = async () => {
+    if (!sessionId) return
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/nuke`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.nukeEffect && data.nukeEffect.isActive) {
+          const timeElapsed = Date.now() - data.nukeEffect.startTime
+          const timeLeft = 10000 - timeElapsed // 10 second effect
+
+          if (timeLeft > 0) {
+            setNukeEffect({
+              isActive: true,
+              user: data.nukeEffect.user,
+              timeLeft: Math.ceil(timeLeft / 1000),
+              startTime: data.nukeEffect.startTime,
+            })
+          } else {
+            setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
+          }
+        } else {
+          setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
+        }
+      }
+    } catch (error) {
+      console.error("Error checking nuke effect:", error)
+    }
+  }
+
+  // Setup nuke effect checking
+  useEffect(() => {
+    if (sessionId) {
+      // Check immediately
+      checkNukeEffect()
+
+      // Check every 500ms for real-time nuke effects
+      const interval = setInterval(checkNukeEffect, 500)
+
+      return () => clearInterval(interval)
+    }
+  }, [sessionId])
+
+  // Update nuke timer
+  useEffect(() => {
+    if (nukeEffect.isActive && nukeEffect.timeLeft > 0) {
+      const timer = setTimeout(() => {
+        setNukeEffect((prev) => ({ ...prev, timeLeft: prev.timeLeft - 1 }))
+      }, 1000)
+
+      return () => clearTimeout(timer)
+    } else if (nukeEffect.isActive && nukeEffect.timeLeft <= 0) {
+      setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
+    }
+  }, [nukeEffect])
 
   useEffect(() => {
     if (!sessionId) return
@@ -209,6 +279,77 @@ export default function ViewPage() {
   if (isFullscreen) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col">
+        {/* Dramatic Nuke Effect Overlay - FULLSCREEN VERSION */}
+        {nukeEffect.isActive && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            {/* Animated background with multiple layers */}
+            <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 opacity-80 animate-pulse" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/50 to-transparent animate-ping" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/30" />
+
+            {/* Explosion particles effect */}
+            <div className="absolute inset-0 overflow-hidden">
+              {[...Array(20)].map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-bounce"
+                  style={{
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                    animationDelay: `${Math.random() * 2}s`,
+                    animationDuration: `${1 + Math.random()}s`,
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Main content */}
+            <div className="relative text-center z-10">
+              <div className="text-8xl mb-6 animate-bounce">💣</div>
+              <div className="text-6xl mb-4 animate-pulse">💥</div>
+              <div className="text-4xl font-bold text-white mb-4 drop-shadow-lg animate-pulse">NUCLEAR STRIKE!</div>
+              <div className="text-2xl font-bold text-yellow-300 mb-2 drop-shadow-lg">
+                BOARD NUKED BY {nukeEffect.user}
+              </div>
+              <div className="text-xl text-white drop-shadow-lg">Devastation ends in {nukeEffect.timeLeft}s</div>
+
+              {/* Countdown circle */}
+              <div className="mt-6 relative">
+                <div className="w-20 h-20 border-4 border-white/30 rounded-full mx-auto relative">
+                  <div
+                    className="absolute inset-0 border-4 border-yellow-400 rounded-full transition-all duration-1000"
+                    style={{
+                      clipPath: `polygon(50% 50%, 50% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 100%, 50% 100%)`,
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xl">
+                    {nukeEffect.timeLeft}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Screen shake effect */}
+            <style jsx>{`
+              @keyframes screenShake {
+                0%, 100% { transform: translate(0, 0) rotate(0deg); }
+                10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+                20% { transform: translate(2px, 1px) rotate(0.5deg); }
+                30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+                40% { transform: translate(1px, -2px) rotate(0.5deg); }
+                50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+                60% { transform: translate(2px, -1px) rotate(0.5deg); }
+                70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+                80% { transform: translate(1px, 2px) rotate(0.5deg); }
+                90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+              }
+              .fixed {
+                animation: screenShake 0.5s infinite;
+              }
+            `}</style>
+          </div>
+        )}
+
         {/* Account for navbar height - typically 64px (h-16) */}
         <div className="h-16 flex-shrink-0"></div>
 
@@ -275,6 +416,77 @@ export default function ViewPage() {
   return (
     <div className="container mx-auto px-4 py-8 relative">
       <DrawingBackground density={8} speed={0.15} />
+
+      {/* Dramatic Nuke Effect Overlay - NORMAL VERSION */}
+      {nukeEffect.isActive && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Animated background with multiple layers */}
+          <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 opacity-80 animate-pulse" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/50 to-transparent animate-ping" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/30" />
+
+          {/* Explosion particles effect */}
+          <div className="absolute inset-0 overflow-hidden">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-bounce"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationDuration: `${1 + Math.random()}s`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Main content */}
+          <div className="relative text-center z-10">
+            <div className="text-8xl mb-6 animate-bounce">💣</div>
+            <div className="text-6xl mb-4 animate-pulse">💥</div>
+            <div className="text-4xl font-bold text-white mb-4 drop-shadow-lg animate-pulse">NUCLEAR STRIKE!</div>
+            <div className="text-2xl font-bold text-yellow-300 mb-2 drop-shadow-lg">
+              BOARD NUKED BY {nukeEffect.user}
+            </div>
+            <div className="text-xl text-white drop-shadow-lg">Devastation ends in {nukeEffect.timeLeft}s</div>
+
+            {/* Countdown circle */}
+            <div className="mt-6 relative">
+              <div className="w-20 h-20 border-4 border-white/30 rounded-full mx-auto relative">
+                <div
+                  className="absolute inset-0 border-4 border-yellow-400 rounded-full transition-all duration-1000"
+                  style={{
+                    clipPath: `polygon(50% 50%, 50% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 100%, 50% 100%)`,
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xl">
+                  {nukeEffect.timeLeft}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Screen shake effect */}
+          <style jsx>{`
+            @keyframes screenShake {
+              0%, 100% { transform: translate(0, 0) rotate(0deg); }
+              10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+              20% { transform: translate(2px, 1px) rotate(0.5deg); }
+              30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+              40% { transform: translate(1px, -2px) rotate(0.5deg); }
+              50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+              60% { transform: translate(2px, -1px) rotate(0.5deg); }
+              70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+              80% { transform: translate(1px, 2px) rotate(0.5deg); }
+              90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+            }
+            .fixed {
+              animation: screenShake 0.5s infinite;
+            }
+          `}</style>
+        </div>
+      )}
 
       <div className="mb-6 flex items-center justify-between">
         <div>
