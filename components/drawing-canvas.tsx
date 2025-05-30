@@ -136,7 +136,7 @@ export default function DrawingCanvas({
       setDebugInfo((prev) => ({ ...prev, lastLoadAttempt: new Date().toISOString() }))
       console.log(`[Canvas Load] Loading for session: ${sessionId}`)
 
-      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${timestamp}`)
+      const response = await fetch(`/api/canvas-simple/${sessionId}?t=${timestamp}`)
 
       if (!response.ok) {
         console.error(`[Canvas Load] HTTP error: ${response.status}`)
@@ -218,20 +218,8 @@ export default function DrawingCanvas({
 
       console.log(`[Canvas Save] Data changed, saving to server - Length: ${dataUrl.length}`)
 
-      // Use the test endpoint first to verify we can write to the database
-      const testResponse = await fetch(`/api/test-db-write?sessionId=${sessionId}`)
-      const testResult = await testResponse.json()
-
-      console.log(`[Canvas Save] Test write result:`, testResult)
-
-      if (!testResult.success) {
-        console.error(`[Canvas Save] Test write failed:`, testResult.error)
-        setDebugInfo((prev) => ({ ...prev, lastSaveResult: `Test failed: ${testResult.error}` }))
-        return
-      }
-
-      // Now try the actual save
-      const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
+      // Remove the test-db-write section entirely and replace with:
+      const response = await fetch(`/api/canvas-simple/${sessionId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
