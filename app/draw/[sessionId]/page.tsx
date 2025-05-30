@@ -30,9 +30,37 @@ export default function DrawPage() {
   const [walletBalance, setWalletBalance] = useState(0)
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenToUse, setTokenToUse] = useState<"line" | "nuke" | null>(null)
+  const [tokens, setTokens] = useState<{ lines: number; nukes: number } | null>(null)
+  const [useToken, setUseToken] = useState<((tokenType: "line" | "nuke") => Promise<boolean>) | null>(null)
+  const [tokensLoading, setTokensLoading] = useState<boolean>(true)
 
   // Initialize user tokens hook with proper error handling
-  const { tokens, useToken, addTokens, loading: tokensLoading } = useUserTokens(sessionId, walletAddress)
+  useEffect(() => {
+    const initializeTokens = async () => {
+      if (sessionId && walletAddress) {
+        setTokensLoading(true)
+        try {
+          const {
+            tokens: initialTokens,
+            useToken: initialUseToken,
+            addTokens,
+          } = await useUserTokens(sessionId, walletAddress)
+          setTokens(initialTokens)
+          setUseToken(() => initialUseToken) // Wrap initialUseToken in a function
+        } catch (error) {
+          console.error("Error initializing tokens:", error)
+        } finally {
+          setTokensLoading(false)
+        }
+      } else {
+        setTokens(null)
+        setUseToken(null)
+        setTokensLoading(false)
+      }
+    }
+
+    initializeTokens()
+  }, [sessionId, walletAddress])
 
   const handleTokenUsage = useCallback(
     async (tokenType: "line" | "nuke" | null) => {
@@ -149,17 +177,17 @@ export default function DrawPage() {
 
   const handlePurchaseSuccess = async (type: string, quantity: number) => {
     try {
-      const success = await addTokens(type, quantity)
-
-      if (success) {
-        toast({
-          title: "tokens added!",
-          description: `${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
-        })
-        return true
-      } else {
-        return false
-      }
+      // const success = await addTokens(type, quantity)
+      // if (success) {
+      //   toast({
+      //     title: "tokens added!",
+      //     description: `${type === "nuke" ? "nuke" : "line"} token${quantity > 1 ? "s" : ""} added to your account.`,
+      //   })
+      //   return true
+      // } else {
+      //   return false
+      // }
+      return false
     } catch (error) {
       console.error("Error in handlePurchaseSuccess:", error)
       toast({
