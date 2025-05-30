@@ -278,48 +278,44 @@ export default function ViewPage() {
 
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 bg-black flex flex-col">
-        {/* Nuke Animation Overlay - Stays the same */}
+      <div className="fixed inset-0 bg-black">
+        {/* Nuke Animation Overlay */}
         {nukeEffect.isActive && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center pointer-events-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
             <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 opacity-80 animate-pulse" />
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/50 to-transparent animate-ping" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/30" />
             <div className="absolute inset-0 overflow-hidden">
-              {[...Array(30)].map((_, i) => (
+              {[...Array(20)].map((_, i) => (
                 <div
                   key={i}
-                  className="absolute w-3 h-3 bg-yellow-300 rounded-full animate-bounce opacity-70"
+                  className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-bounce"
                   style={{
                     left: `${Math.random() * 100}%`,
                     top: `${Math.random() * 100}%`,
-                    animationDelay: `${Math.random() * 1.5}s`,
-                    animationDuration: `${0.5 + Math.random() * 1}s`,
-                    transform: `scale(${0.5 + Math.random()})`,
+                    animationDelay: `${Math.random() * 2}s`,
+                    animationDuration: `${1 + Math.random()}s`,
                   }}
                 />
               ))}
             </div>
-            <div className="relative text-center z-10 p-4">
-              <div className="text-7xl md:text-9xl mb-4 animate-bounce">💣</div>
-              <div className="text-5xl md:text-7xl mb-3 animate-pulse">💥</div>
-              <div className="text-3xl md:text-5xl font-bold text-white mb-3 drop-shadow-lg animate-pulse">
-                NUCLEAR STRIKE!
+            <div className="relative text-center z-10">
+              <div className="text-8xl mb-6 animate-bounce">💣</div>
+              <div className="text-6xl mb-4 animate-pulse">💥</div>
+              <div className="text-4xl font-bold text-white mb-4 drop-shadow-lg animate-pulse">NUCLEAR STRIKE!</div>
+              <div className="text-2xl font-bold text-yellow-300 mb-2 drop-shadow-lg">
+                BOARD NUKED BY {nukeEffect.user}
               </div>
-              <div className="text-xl md:text-3xl font-bold text-yellow-300 mb-2 drop-shadow-lg">
-                BOARD NUKED BY{" "}
-                <span className="font-mono">{nukeEffect.user ? nukeEffect.user.slice(0, 8) + "..." : "Someone"}</span>
-              </div>
-              <div className="text-lg md:text-2xl text-white drop-shadow-lg">Clearing in {nukeEffect.timeLeft}s</div>
-              <div className="mt-5 relative">
-                <div className="w-24 h-24 border-4 border-white/30 rounded-full mx-auto relative">
+              <div className="text-xl text-white drop-shadow-lg">Devastation ends in {nukeEffect.timeLeft}s</div>
+              <div className="mt-6 relative">
+                <div className="w-20 h-20 border-4 border-white/30 rounded-full mx-auto relative">
                   <div
-                    className="absolute inset-0 border-4 border-yellow-400 rounded-full transition-all duration-1000 ease-linear"
+                    className="absolute inset-0 border-4 border-yellow-400 rounded-full transition-all duration-1000"
                     style={{
-                      clipPath: `inset(0 ${100 - (nukeEffect.timeLeft / 10) * 100}% 0 0)`,
+                      clipPath: `polygon(50% 50%, 50% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 100%, 50% 100%)`,
                     }}
                   />
-                  <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-2xl">
+                  <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xl">
                     {nukeEffect.timeLeft}
                   </div>
                 </div>
@@ -328,20 +324,33 @@ export default function ViewPage() {
             <style jsx>{`
           @keyframes screenShake {
             0%, 100% { transform: translate(0, 0) rotate(0deg); }
-            10% { transform: translate(-3px, -2px) rotate(-0.8deg); }
-            20% { transform: translate(3px, 2px) rotate(0.8deg); }
-            90% { transform: translate(-3px, -2px) rotate(-0.8deg); }
+            10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+            20% { transform: translate(2px, 1px) rotate(0.5deg); }
+            30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+            40% { transform: translate(1px, -2px) rotate(0.5deg); }
+            50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+            60% { transform: translate(2px, -1px) rotate(0.5deg); }
+            70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+            80% { transform: translate(1px, 2px) rotate(0.5deg); }
+            90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
           }
-          .animate-screen-shake {
-            animation: screenShake 0.3s cubic-bezier(.36,.07,.19,.97) both infinite;
+          .fixed {
+            animation: screenShake 0.5s infinite;
           }
         `}</style>
           </div>
         )}
 
-        {/* Top Bar in Fullscreen: Session ID and Exit Button */}
-        <div className="absolute top-0 left-0 right-0 h-20 p-4 z-40 flex items-center justify-between bg-black/30 backdrop-blur-sm">
-          <div className="pump-card p-3 rounded-lg border-[#00ff88]/50 bg-black/90">
+        {/* Canvas takes full screen - navigation bar will overlay on top */}
+        <div className="w-full h-full">
+          <DrawingCanvas key={isFullscreen.toString()} isReadOnly={true} sessionId={sessionId} isFullscreen={true} />
+        </div>
+
+        {/* Overlay UI Elements - positioned absolutely so they don't affect canvas dimensions */}
+
+        {/* Top Session Info - overlays on top */}
+        <div className="absolute top-16 left-4 right-4 z-40 flex items-center justify-between">
+          <div className="pump-card p-3 rounded-lg border-[#00ff88]/50 bg-black/90 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <div className="pump-gradient p-2 rounded-lg">
                 <Zap className="h-4 w-4 text-black" />
@@ -349,6 +358,9 @@ export default function ViewPage() {
               <div>
                 <div className="text-sm font-semibold text-white">Session ID</div>
                 <div className="text-lg font-bold pump-text-gradient">{sessionId}</div>
+              </div>
+              <div className="ml-4 text-xs text-gray-400">
+                <div>Live Stream View</div>
               </div>
             </div>
           </div>
@@ -363,35 +375,26 @@ export default function ViewPage() {
           </Button>
         </div>
 
-        {/* Main Canvas Container: Fills space between top and bottom bars */}
-        <div className="absolute inset-0 top-20 bottom-16 p-4 flex items-center justify-center">
-          {/* The key forces re-mount on fullscreen toggle, ensuring fresh state and calculations */}
-          <DrawingCanvas
-            key={`canvas-${isFullscreen.toString()}`}
-            isReadOnly={true}
-            sessionId={sessionId}
-            isFullscreen={true}
-          />
-        </div>
-
-        {/* Bottom Info Bar in Fullscreen */}
-        <div className="absolute bottom-0 left-0 right-0 h-16 p-2 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <div className="flex items-center justify-center gap-6 text-xs text-gray-300">
-            <span className="flex items-center gap-1">
-              <Timer className="h-3 w-3" />
-              0.005 SOL/line
-            </span>
-            <span className="flex items-center gap-1">
-              <DollarSign className="h-3 w-3" />
-              0.02 SOL/bundle
-            </span>
-            <span className="flex items-center gap-1">
-              <Bomb className="h-3 w-3 text-red-400" />
-              0.03 SOL/nuke
-            </span>
-            <span className="text-[#00ff88]">50% revenue share</span>
-            <span className="text-gray-500">•</span>
-            <span className="pump-text-gradient font-medium">draw.fun by D3vCav3</span>
+        {/* Bottom Info Bar - overlays on bottom */}
+        <div className="absolute bottom-4 left-4 right-4 z-40">
+          <div className="pump-card p-2 rounded-lg bg-black/70 backdrop-blur-md border-[#00ff88]/30">
+            <div className="flex items-center justify-center gap-6 text-xs text-gray-300">
+              <span className="flex items-center gap-1">
+                <Timer className="h-3 w-3" />
+                0.005 SOL/line
+              </span>
+              <span className="flex items-center gap-1">
+                <DollarSign className="h-3 w-3" />
+                0.02 SOL/bundle
+              </span>
+              <span className="flex items-center gap-1">
+                <Bomb className="h-3 w-3 text-red-400" />
+                0.03 SOL/nuke
+              </span>
+              <span className="text-[#00ff88]">50% revenue share</span>
+              <span className="text-gray-500">•</span>
+              <span className="pump-text-gradient font-medium">draw.fun by D3vCav3</span>
+            </div>
           </div>
         </div>
       </div>
