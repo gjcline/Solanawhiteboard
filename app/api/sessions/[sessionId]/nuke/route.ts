@@ -10,6 +10,7 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
     console.log(`[Nuke API GET] Checking nuke effect for session: ${sessionId}`)
 
     // Check for active nuke effects in the last 10 seconds
+    // Use sessionId as string, not integer
     const result = await sql`
       SELECT nuke_user, nuke_start_time 
       FROM sessions 
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: { session
     console.log(`[Nuke API POST] Storing nuke effect for session: ${sessionId}, user: ${user}`)
 
     // Store the nuke effect in the database
+    // Use sessionId as string, not integer
     await sql`
       UPDATE sessions 
       SET nuke_user = ${user}, nuke_start_time = ${new Date(startTime).toISOString()}

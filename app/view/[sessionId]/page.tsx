@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -32,7 +32,6 @@ export default function ViewPage() {
     startTime: 0,
   })
   const { toast } = useToast()
-  const fullscreenContainerRef = useRef<HTMLDivElement>(null)
 
   // Add new state for session status
   const [sessionDeleted, setSessionDeleted] = useState(false)
@@ -201,12 +200,7 @@ export default function ViewPage() {
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
-        // Request fullscreen on the container div
-        if (fullscreenContainerRef.current) {
-          await fullscreenContainerRef.current.requestFullscreen()
-        } else {
-          await document.documentElement.requestFullscreen()
-        }
+        await document.documentElement.requestFullscreen()
       } else {
         await document.exitFullscreen()
       }
@@ -284,11 +278,7 @@ export default function ViewPage() {
 
   if (isFullscreen) {
     return (
-      <div
-        ref={fullscreenContainerRef}
-        className="fixed inset-0 bg-black flex flex-col"
-        style={{ paddingTop: "64px" }} // Account for the navbar height
-      >
+      <div className="w-full h-screen bg-black relative">
         {/* Nuke Animation Overlay */}
         {nukeEffect.isActive && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -351,8 +341,8 @@ export default function ViewPage() {
           </div>
         )}
 
-        {/* Session Info Bar */}
-        <div className="absolute top-16 left-4 right-4 z-40 flex items-center justify-between">
+        {/* Top overlay with session info and exit button */}
+        <div className="absolute top-4 left-4 right-4 z-40 flex items-center justify-between">
           <div className="pump-card p-3 rounded-lg border-[#00ff88]/50 bg-black/90 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <div className="pump-gradient p-2 rounded-lg">
@@ -375,17 +365,17 @@ export default function ViewPage() {
           </Button>
         </div>
 
-        {/* Canvas Container - takes remaining space */}
-        <div className="flex-1 flex items-center justify-center bg-black">
+        {/* Main canvas area - takes full screen minus overlays */}
+        <div className="absolute inset-0 pt-20 pb-16">
           <DrawingCanvas
-            key={`fullscreen-${isFullscreen}`}
+            key={`fullscreen-canvas-${sessionId}`}
             isReadOnly={true}
             sessionId={sessionId}
             isFullscreen={true}
           />
         </div>
 
-        {/* Bottom Info Bar */}
+        {/* Bottom overlay with pricing info */}
         <div className="absolute bottom-4 left-4 right-4 z-40">
           <div className="pump-card p-2 rounded-lg bg-black/70 backdrop-blur-md border-[#00ff88]/30">
             <div className="flex items-center justify-center gap-6 text-xs text-gray-300">
