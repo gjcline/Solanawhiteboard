@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Paintbrush, AlertCircle, Bomb, Timer, Trash2, Wifi, WifiOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
+import { calculateCanvasDimensions, getResponsiveCanvasClass, type CanvasDimensions } from "@/lib/canvas-utils"
 
 // Sync settings
 const SYNC_INTERVAL = 2000 // 2 seconds
@@ -53,6 +54,7 @@ export default function DrawingCanvas({
   const [drawingStartTime, setDrawingStartTime] = useState<number | null>(null)
   const [timeLeft, setTimeLeft] = useState(DRAWING_TIME_LIMIT)
   const [nukeEffect, setNukeEffect] = useState<NukeEffect>({ isActive: false, user: "", timeLeft: 0 })
+  const [canvasDimensions, setCanvasDimensions] = useState<CanvasDimensions>({ width: 800, height: 450 })
   const lastPositionRef = useRef({ x: 0, y: 0 })
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -60,6 +62,7 @@ export default function DrawingCanvas({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastCanvasDataRef = useRef<string>("")
   const isCanvasReadyRef = useRef(false)
+  const canvasImageDataRef = useRef<ImageData | null>(null)
   const { toast } = useToast()
 
   // Sync status
@@ -81,7 +84,19 @@ export default function DrawingCanvas({
     lastLoadResult: null,
   })
 
-  // Initialize canvas
+  // Calculate canvas dimensions based on container size
+  const updateCanvasDimensions = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const containerRect = container.getBoundingClientRect()
+    const newDimensions = calculateCanvasDimensions(containerRect.width, containerRect.height, isFullscreen)
+
+    setCanvasDimensions(newDimensions)
+    return newDimensions
+  }, [isFullscreen])
+
+  // Initialize canvas with consistent sizing
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -90,12 +105,24 @@ export default function DrawingCanvas({
     const setupCanvas = () => {
       console.log(`[Canvas] Setting up canvas`)
 
-      const containerRect = container.getBoundingClientRect()
-      const newWidth = containerRect.width
-      const newHeight = isFullscreen ? containerRect.height : Math.max(500, containerRect.height)
+      // Calculate new dimensions
+      const newDimensions = updateCanvasDimensions()
+      if (!newDimensions) return
 
-      canvas.width = newWidth
-      canvas.height = newHeight
+      // Store current canvas content if it exists
+      let imageData: ImageData | null = null
+      if (ctx && canvas.width > 0 && canvas.height > 0) {
+        try {
+          imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+          canvasImageDataRef.current = imageData
+        } catch (error) {
+          console.log("[Canvas] Could not preserve image data:", error)
+        }
+      }
+
+      // Set canvas dimensions
+      canvas.width = newDimensions.width
+      canvas.height = newDimensions.height
 
       const context = canvas.getContext("2d")
       if (context) {
@@ -105,13 +132,39 @@ export default function DrawingCanvas({
         context.lineWidth = brushSize[0]
         setCtx(context)
         isCanvasReadyRef.current = true
-        console.log(`[Canvas] Canvas ready - ${newWidth}x${newHeight}`)
+
+        // Restore canvas content if we had any
+        if (imageData && canvasImageDataRef.current) {
+          try {
+            // Scale the image data to fit new dimensions if needed
+            const tempCanvas = document.createElement("canvas")
+            const tempCtx = tempCanvas.getContext("2d")
+            if (tempCtx) {
+              tempCanvas.width = imageData.width
+              tempCanvas.height = imageData.height
+              tempCtx.putImageData(imageData, 0, 0)
+
+              // Draw scaled image to main canvas
+              context.drawImage(tempCanvas, 0, 0, newDimensions.width, newDimensions.height)
+              console.log(`[Canvas] Restored and scaled canvas content`)
+            }
+          } catch (error) {
+            console.log("[Canvas] Could not restore image data:", error)
+            // If restore fails, reload from server
+            setTimeout(() => loadCanvasFromServer(), 100)
+          }
+        }
+
+        console.log(`[Canvas] Canvas ready - ${newDimensions.width}x${newDimensions.height}`)
       }
     }
 
     setupCanvas()
 
-    const handleResize = () => setupCanvas()
+    const handleResize = () => {
+      // Debounce resize events
+      setTimeout(setupCanvas, 100)
+    }
     const handleFullscreenChange = () => setTimeout(setupCanvas, 100)
 
     window.addEventListener("resize", handleResize)
@@ -121,7 +174,16 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, color, brushSize])
+  }, [isFullscreen, updateCanvasDimensions])
+
+  // Update context properties when color or brush size changes (without clearing canvas)
+  useEffect(() => {
+    if (ctx) {
+      ctx.strokeStyle = color
+      ctx.lineWidth = brushSize[0]
+      console.log(`[Canvas] Updated brush properties - Color: ${color}, Size: ${brushSize[0]}`)
+    }
+  }, [color, brushSize, ctx])
 
   // Load canvas from server
   const loadCanvasFromServer = useCallback(async () => {
@@ -170,8 +232,17 @@ export default function DrawingCanvas({
           if (ctx && canvasRef.current) {
             console.log(`[Canvas Load] Drawing image to canvas`)
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+            // Scale image to fit current canvas dimensions
             ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
             lastCanvasDataRef.current = data.canvasData
+
+            // Store the loaded image data
+            try {
+              canvasImageDataRef.current = ctx.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height)
+            } catch (error) {
+              console.log("[Canvas Load] Could not store image data:", error)
+            }
+
             setSyncStatus("connected")
             setLastSyncTime(new Date())
           }
@@ -208,7 +279,7 @@ export default function DrawingCanvas({
       setDebugInfo((prev) => ({ ...prev, lastSaveAttempt: new Date().toISOString() }))
 
       // Get canvas data as data URL
-      const dataUrl = canvasRef.current.toDataURL("image/png", 0.8) // Add compression
+      const dataUrl = canvasRef.current.toDataURL("image/png", 0.8)
 
       // Only save if data has changed
       if (dataUrl === lastCanvasDataRef.current) {
@@ -218,7 +289,6 @@ export default function DrawingCanvas({
 
       console.log(`[Canvas Save] Data changed, saving to server - Length: ${dataUrl.length}`)
 
-      // Remove the test-db-write section entirely and replace with:
       const response = await fetch(`/api/canvas-simple/${sessionId}`, {
         method: "POST",
         headers: {
@@ -229,7 +299,6 @@ export default function DrawingCanvas({
 
       const responseText = await response.text()
       console.log(`[Canvas Save] Response status: ${response.status}`)
-      console.log(`[Canvas Save] Response text: ${responseText}`)
 
       setDebugInfo((prev) => ({
         ...prev,
@@ -241,6 +310,15 @@ export default function DrawingCanvas({
           const result = JSON.parse(responseText)
           console.log(`[Canvas Save] SUCCESS:`, result)
           lastCanvasDataRef.current = dataUrl
+
+          // Store the saved image data
+          try {
+            canvasImageDataRef.current =
+              ctx?.getImageData(0, 0, canvasRef.current.width, canvasRef.current.height) || null
+          } catch (error) {
+            console.log("[Canvas Save] Could not store image data:", error)
+          }
+
           setSyncStatus("connected")
           setLastSyncTime(new Date())
         } catch (parseError) {
@@ -258,7 +336,7 @@ export default function DrawingCanvas({
       setSyncStatus("disconnected")
       setDebugInfo((prev) => ({ ...prev, lastSaveResult: `Exception: ${error}` }))
     }
-  }, [sessionId, isReadOnly])
+  }, [sessionId, isReadOnly, ctx])
 
   // Initial load when canvas is ready
   useEffect(() => {
@@ -266,7 +344,7 @@ export default function DrawingCanvas({
       console.log(`[Canvas] Initial load triggered`)
       setTimeout(() => {
         loadCanvasFromServer()
-      }, 500) // Increased delay
+      }, 500)
     }
   }, [sessionId, ctx, loadCanvasFromServer])
 
@@ -288,14 +366,6 @@ export default function DrawingCanvas({
       }
     }
   }, [isReadOnly, sessionId, loadCanvasFromServer])
-
-  // Update context when color or brush size changes
-  useEffect(() => {
-    if (ctx) {
-      ctx.strokeStyle = color
-      ctx.lineWidth = brushSize[0]
-    }
-  }, [color, brushSize, ctx])
 
   // Check for nuke effects
   useEffect(() => {
@@ -542,6 +612,7 @@ export default function DrawingCanvas({
 
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    canvasImageDataRef.current = null
 
     toast({
       title: "canvas cleared",
@@ -609,6 +680,7 @@ export default function DrawingCanvas({
     console.log(`[Canvas] Nuking board`)
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    canvasImageDataRef.current = null
 
     const nukeData = {
       user: walletAddress.slice(0, 8) + "..." + walletAddress.slice(-4),
@@ -791,20 +863,28 @@ export default function DrawingCanvas({
               <div className="w-32">
                 <Slider value={brushSize} min={1} max={30} step={1} onValueChange={setBrushSize} disabled={!canDraw} />
               </div>
+              <span className="text-xs text-gray-400 ml-2">{brushSize[0]}px</span>
             </div>
           </div>
         </>
       )}
 
+      {/* Canvas Container with Consistent Aspect Ratio */}
       <div
         ref={containerRef}
-        className={`border rounded-md bg-white relative flex-1 ${
+        className={`border rounded-md bg-white relative flex-1 flex items-center justify-center ${
           isReadOnly ? "cursor-not-allowed" : canDraw ? "cursor-crosshair" : "cursor-not-allowed"
-        } ${isFullscreen ? "h-full" : "min-h-[500px]"}`}
+        } ${isFullscreen ? "h-full" : "min-h-[400px]"}`}
       >
         <canvas
           ref={canvasRef}
-          className="w-full h-full touch-none"
+          className={`${getResponsiveCanvasClass(isFullscreen)} touch-none border rounded`}
+          style={{
+            width: isFullscreen ? "100%" : `${canvasDimensions.width}px`,
+            height: isFullscreen ? "100%" : `${canvasDimensions.height}px`,
+            maxWidth: "100%",
+            maxHeight: "100%",
+          }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
           onMouseUp={() => stopDrawing(false)}
@@ -813,6 +893,11 @@ export default function DrawingCanvas({
           onTouchMove={draw}
           onTouchEnd={() => stopDrawing(false)}
         />
+      </div>
+
+      {/* Canvas Dimensions Info */}
+      <div className="mt-2 text-center text-xs text-gray-500">
+        Canvas: {canvasDimensions.width} × {canvasDimensions.height} (16:9 aspect ratio)
       </div>
 
       {/* Debug info */}
