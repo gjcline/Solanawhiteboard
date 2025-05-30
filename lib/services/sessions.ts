@@ -55,12 +55,18 @@ export class SessionService {
   static async saveCanvasData(sessionId: string, canvasData: string): Promise<boolean> {
     try {
       console.log(`[SessionService] Saving canvas data for session: ${sessionId}`)
-      const result = await sql`
+
+      // Use parameterized query to safely store the canvas data
+      const result = await sql.query(
+        `
         UPDATE sessions 
-        SET canvas_data = ${canvasData}, updated_at = NOW()
-        WHERE session_id = ${sessionId} AND is_active = true
+        SET canvas_data = $1, updated_at = NOW()
+        WHERE session_id = $2 AND is_active = true
         RETURNING session_id
-      `
+        `,
+        [canvasData, sessionId],
+      )
+
       return result.length > 0
     } catch (error) {
       console.error(`[SessionService] Error saving canvas data:`, error)

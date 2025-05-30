@@ -81,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: { session
       return NextResponse.json({ error: "Session inactive" }, { status: 404 })
     }
 
-    // Try a direct SQL query with text parameters
+    // Use parameterized query to safely store the canvas data as text
     try {
       const updateResult = await sql.query(
         `
