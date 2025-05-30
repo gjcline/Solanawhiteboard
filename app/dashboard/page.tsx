@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/components/auth-provider"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -27,12 +28,14 @@ import {
   AlertCircle,
   Power,
   PowerOff,
+  DollarSign,
 } from "lucide-react"
 import DrawingBackground from "@/components/drawing-background"
 import { useSessions } from "@/hooks/use-sessions"
 import WalletAddressInput from "@/components/wallet-address-input"
 import { isValidSolanaAddress, formatWalletAddress } from "@/lib/wallet-utils"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import EarningsDashboard from "@/components/earnings-dashboard"
 
 export default function DashboardPage() {
   const { user, updateProfile } = useAuth()
@@ -319,356 +322,404 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Default Wallet Settings */}
-        <Card className="mb-8 pump-card border-gray-800">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white">
-              <Wallet className="h-5 w-5 text-[#00ff88]" />
-              default wallet settings
-            </CardTitle>
-            <CardDescription className="text-gray-400">
-              set a default wallet address that will be pre-filled when creating new sessions. you can override this for
-              each individual session.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <WalletAddressInput
-              value={defaultWalletAddress}
-              onChange={setDefaultWalletAddress}
-              onSave={saveDefaultWallet}
-              placeholder="enter your default solana wallet address"
-              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
-            />
-            <div className="mt-3 text-sm text-gray-500">
-              <strong>Revenue Split:</strong> 50% to session wallet • 50% to D3vCav3 • Instant payments on Solana
-            </div>
-          </CardContent>
-        </Card>
+        <Tabs defaultValue="sessions" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 bg-gray-800 border-gray-700">
+            <TabsTrigger value="sessions" className="data-[state=active]:bg-[#00ff88] data-[state=active]:text-black">
+              Sessions & Setup
+            </TabsTrigger>
+            <TabsTrigger value="earnings" className="data-[state=active]:bg-[#00ff88] data-[state=active]:text-black">
+              <DollarSign className="h-4 w-4 mr-2" />
+              Earnings & Claims
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Create New Session */}
-        <Card className="mb-8 pump-card border-gray-800 glow-effect">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white">
-              <Zap className="h-5 w-5 text-[#00ff88]" />
-              create new token-based session
-            </CardTitle>
-            <CardDescription className="text-gray-400">
-              launch a new whiteboard where viewers purchase tokens to draw lines or nuke the board
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Alert className="bg-yellow-950/20 border-yellow-500/30">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-yellow-400">
-                <strong>Important:</strong> You must provide your own Solana wallet address to receive 50% of token
-                sales. Sessions cannot be created without a valid receiving wallet.
-              </AlertDescription>
-            </Alert>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-gray-300 mb-2 block">session name</label>
-                <Input
-                  placeholder="session name (e.g., 'token drawing madness')"
-                  value={newSessionName}
-                  onChange={(e) => setNewSessionName(e.target.value)}
+          <TabsContent value="sessions" className="space-y-6">
+            {/* Default Wallet Settings */}
+            <Card className="pump-card border-gray-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-white">
+                  <Wallet className="h-5 w-5 text-[#00ff88]" />
+                  default wallet settings
+                </CardTitle>
+                <CardDescription className="text-gray-400">
+                  set a default wallet address that will be pre-filled when creating new sessions. you can override this
+                  for each individual session.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <WalletAddressInput
+                  value={defaultWalletAddress}
+                  onChange={setDefaultWalletAddress}
+                  onSave={saveDefaultWallet}
+                  placeholder="enter your default solana wallet address"
                   className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
                 />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-300 mb-2 block">
-                  your receiving wallet <span className="text-red-400">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <WalletAddressInput
-                    value={newSessionWallet}
-                    onChange={setNewSessionWallet}
-                    placeholder="your solana wallet address (required)"
-                    className="flex-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
-                  />
-                  {defaultWalletAddress && defaultWalletAddress !== newSessionWallet && (
-                    <Button
-                      onClick={useDefaultWallet}
-                      variant="outline"
-                      size="sm"
-                      className="border-gray-700 text-gray-300 hover:bg-gray-800 whitespace-nowrap"
-                      title="Use your default wallet address"
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      use default
-                    </Button>
-                  )}
+                <div className="mt-3 text-sm text-gray-500">
+                  <strong>New Revenue Model:</strong> All purchases go to DevCave wallet • Earnings accumulate in your
+                  account • Claim rewards when you want
                 </div>
-                {defaultWalletAddress && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Default: {formatWalletAddress(defaultWalletAddress, 6, 6)}
-                  </p>
-                )}
-                <p className="text-xs text-red-400 mt-1">
-                  Required: This wallet will receive 50% of all token purchases
-                </p>
-              </div>
-            </div>
-            <Button
-              onClick={handleCreateSession}
-              disabled={isCreating || !newSessionName.trim() || !isValidSolanaAddress(newSessionWallet)}
-              className="w-full pump-button text-black font-semibold"
-            >
-              {isCreating ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  creating...
-                </>
-              ) : !isValidSolanaAddress(newSessionWallet) ? (
-                "enter valid wallet address"
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-2" />
-                  pump it
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Sessions List */}
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold text-white">your token-based sessions</h2>
-          {sessions?.length === 0 ? (
-            <Card className="pump-card border-gray-800">
-              <CardContent className="py-12 text-center">
-                <p className="text-gray-400">no sessions yet. create your first token-based drawing session above!</p>
               </CardContent>
             </Card>
-          ) : (
-            sessions?.map((session) => {
-              const sessionId = getSessionId(session)
-              return (
-                <Card key={sessionId} className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <CardTitle className="text-white">{session.name}</CardTitle>
-                          {session.is_active ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-400 border border-green-500/30">
-                              <Power className="h-3 w-3" />
-                              active
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-400 border border-red-500/30">
-                              <PowerOff className="h-3 w-3" />
-                              inactive
-                            </span>
-                          )}
-                        </div>
-                        <CardDescription className="text-gray-400">
-                          created {new Date(session.created_at).toLocaleDateString()}
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleToggleSession(sessionId, session.is_active)}
-                          className={`border-gray-700 hover:bg-gray-800 ${
-                            session.is_active
-                              ? "text-red-400 hover:text-red-300"
-                              : "text-green-400 hover:text-green-300"
-                          }`}
-                          title={session.is_active ? "Deactivate session" : "Reactivate session"}
-                        >
-                          {session.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
-                          className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                          disabled={!session.is_active}
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeactivateSession(sessionId)}
-                          className="border-gray-700 text-orange-400 hover:bg-gray-800 hover:text-orange-300"
-                          title="Deactivate session (soft delete)"
-                        >
-                          <PowerOff className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePermanentDeleteSession(sessionId)}
-                          className="border-gray-700 text-red-400 hover:bg-gray-800 hover:text-red-300"
-                          title="Permanently delete session (hard delete)"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {/* Session Wallet Display/Edit */}
-                    <div className="mb-4 p-3 bg-gray-800/50 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <h4 className="font-medium text-gray-300 text-sm">receiving wallet (50% revenue)</h4>
-                          {editingWallet === sessionId ? (
-                            <div className="flex items-center gap-2 mt-2">
-                              <WalletAddressInput
-                                value={editWalletValue}
-                                onChange={setEditWalletValue}
-                                className="flex-1 bg-gray-700 border-gray-600 text-white text-sm"
-                              />
-                              {defaultWalletAddress && defaultWalletAddress !== editWalletValue && (
-                                <Button
-                                  onClick={useDefaultWalletForEdit}
-                                  size="sm"
-                                  variant="outline"
-                                  className="border-gray-600 text-gray-300 hover:bg-gray-700 whitespace-nowrap"
-                                  title="Use your default wallet address"
-                                >
-                                  <RefreshCw className="h-3 w-3" />
-                                </Button>
-                              )}
-                              <Button
-                                onClick={() => handleUpdateSessionWallet(sessionId, editWalletValue)}
-                                size="sm"
-                                className="pump-button text-black"
-                                disabled={!isValidSolanaAddress(editWalletValue)}
-                              >
-                                <Check className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                onClick={cancelEditingWallet}
-                                size="sm"
-                                variant="outline"
-                                className="border-gray-600 text-gray-300"
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs font-mono text-gray-400">
-                                {formatWalletAddress(session.streamer_wallet, 8, 8)}
-                              </span>
-                              <Button
-                                onClick={() => startEditingWallet(sessionId, session.streamer_wallet)}
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 w-6 p-0 text-gray-400 hover:text-white"
-                                disabled={!session.is_active}
-                              >
-                                <Edit2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <h4 className="font-medium mb-2 text-gray-300">for your stream (view only)</h4>
-                        <div className="flex gap-2">
-                          <Input
-                            value={`${window.location.origin}/view/${sessionId}`}
-                            readOnly
-                            className="text-xs bg-gray-800 border-gray-700 text-gray-400"
-                          />
-                          <Link href={`/view/${sessionId}`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                              disabled={!session.is_active}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
-                            className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                            disabled={!session.is_active}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          display this on your stream. shows live drawing and nuke effects.
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="font-medium mb-2 text-gray-300">for viewers (token purchase & draw)</h4>
-                        <div className="flex gap-2">
-                          <Input
-                            value={`${window.location.origin}/draw/${sessionId}`}
-                            readOnly
-                            className="text-xs bg-gray-800 border-gray-700 text-gray-400"
-                          />
-                          <Link href={`/draw/${sessionId}`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                              disabled={!session.is_active}
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => copyToClipboard(`${window.location.origin}/draw/${sessionId}`, "draw")}
-                            className="border-gray-700 text-gray-300 hover:bg-gray-800"
-                            disabled={!session.is_active}
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          share this URL so viewers can buy tokens and interact with your board.
-                        </p>
-                      </div>
-                    </div>
+            {/* Create New Session */}
+            <Card className="pump-card border-gray-800 glow-effect">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-white">
+                  <Zap className="h-5 w-5 text-[#00ff88]" />
+                  create new token-based session
+                </CardTitle>
+                <CardDescription className="text-gray-400">
+                  launch a new whiteboard where viewers purchase tokens to draw lines or nuke the board
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Alert className="bg-blue-950/20 border-blue-500/30">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-blue-400">
+                    <strong>New System:</strong> Token purchases are held in our secure wallet. Your earnings accumulate
+                    automatically and you can claim them anytime from the Earnings tab.
+                  </AlertDescription>
+                </Alert>
 
-                    {/* Session Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                        <div className="text-[#00ff88] font-bold">{formatEarnings(session.total_earnings)} SOL</div>
-                        <div className="text-gray-400">earnings (50%)</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                        <div className="flex items-center justify-center gap-1">
-                          <Timer className="h-4 w-4" />
-                          <span className="text-white font-bold">{session.lines_drawn || 0}</span>
-                        </div>
-                        <div className="text-gray-400">lines drawn</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                        <div className="flex items-center justify-center gap-1">
-                          <Bomb className="h-4 w-4 text-red-400" />
-                          <span className="text-white font-bold">{session.nukes_used || 0}</span>
-                        </div>
-                        <div className="text-gray-400">nukes used</div>
-                      </div>
-                      <div className="text-center p-3 bg-gray-800/50 rounded-lg">
-                        <div className="text-white font-bold">{session.viewer_count || 0}</div>
-                        <div className="text-gray-400">active viewers</div>
-                      </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="text-sm font-medium text-gray-300 mb-2 block">session name</label>
+                    <Input
+                      placeholder="session name (e.g., 'token drawing madness')"
+                      value={newSessionName}
+                      onChange={(e) => setNewSessionName(e.target.value)}
+                      className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-300 mb-2 block">
+                      your earnings wallet <span className="text-red-400">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <WalletAddressInput
+                        value={newSessionWallet}
+                        onChange={setNewSessionWallet}
+                        placeholder="your solana wallet address (required)"
+                        className="flex-1 bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+                      />
+                      {defaultWalletAddress && defaultWalletAddress !== newSessionWallet && (
+                        <Button
+                          onClick={useDefaultWallet}
+                          variant="outline"
+                          size="sm"
+                          className="border-gray-700 text-gray-300 hover:bg-gray-800 whitespace-nowrap"
+                          title="Use your default wallet address"
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          use default
+                        </Button>
+                      )}
                     </div>
+                    {defaultWalletAddress && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Default: {formatWalletAddress(defaultWalletAddress, 6, 6)}
+                      </p>
+                    )}
+                    <p className="text-xs text-blue-400 mt-1">
+                      Required: This wallet will receive your claimed earnings (50% of token sales)
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleCreateSession}
+                  disabled={isCreating || !newSessionName.trim() || !isValidSolanaAddress(newSessionWallet)}
+                  className="w-full pump-button text-black font-semibold"
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      creating...
+                    </>
+                  ) : !isValidSolanaAddress(newSessionWallet) ? (
+                    "enter valid wallet address"
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      pump it
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Sessions List */}
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold text-white">your token-based sessions</h2>
+              {sessions?.length === 0 ? (
+                <Card className="pump-card border-gray-800">
+                  <CardContent className="py-12 text-center">
+                    <p className="text-gray-400">
+                      no sessions yet. create your first token-based drawing session above!
+                    </p>
                   </CardContent>
                 </Card>
-              )
-            })
-          )}
-        </div>
+              ) : (
+                sessions?.map((session) => {
+                  const sessionId = getSessionId(session)
+                  return (
+                    <Card
+                      key={sessionId}
+                      className={`pump-card border-gray-800 ${!session.is_active ? "opacity-60" : ""}`}
+                    >
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-white">{session.name}</CardTitle>
+                              {session.is_active ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-900/30 text-green-400 border border-green-500/30">
+                                  <Power className="h-3 w-3" />
+                                  active
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-red-900/30 text-red-400 border border-red-500/30">
+                                  <PowerOff className="h-3 w-3" />
+                                  inactive
+                                </span>
+                              )}
+                            </div>
+                            <CardDescription className="text-gray-400">
+                              created {new Date(session.created_at).toLocaleDateString()}
+                            </CardDescription>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleSession(sessionId, session.is_active)}
+                              className={`border-gray-700 hover:bg-gray-800 ${
+                                session.is_active
+                                  ? "text-red-400 hover:text-red-300"
+                                  : "text-green-400 hover:text-green-300"
+                              }`}
+                              title={session.is_active ? "Deactivate session" : "Reactivate session"}
+                            >
+                              {session.is_active ? <PowerOff className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
+                              className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                              disabled={!session.is_active}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeactivateSession(sessionId)}
+                              className="border-gray-700 text-orange-400 hover:bg-gray-800 hover:text-orange-300"
+                              title="Deactivate session (soft delete)"
+                            >
+                              <PowerOff className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePermanentDeleteSession(sessionId)}
+                              className="border-gray-700 text-red-400 hover:bg-gray-800 hover:text-red-300"
+                              title="Permanently delete session (hard delete)"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {/* Session Wallet Display/Edit */}
+                        <div className="mb-4 p-3 bg-gray-800/50 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-medium text-gray-300 text-sm">earnings wallet (50% revenue)</h4>
+                              {editingWallet === sessionId ? (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <WalletAddressInput
+                                    value={editWalletValue}
+                                    onChange={setEditWalletValue}
+                                    className="flex-1 bg-gray-700 border-gray-600 text-white text-sm"
+                                  />
+                                  {defaultWalletAddress && defaultWalletAddress !== editWalletValue && (
+                                    <Button
+                                      onClick={useDefaultWalletForEdit}
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-gray-600 text-gray-300 hover:bg-gray-700 whitespace-nowrap"
+                                      title="Use your default wallet address"
+                                    >
+                                      <RefreshCw className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                  <Button
+                                    onClick={() => handleUpdateSessionWallet(sessionId, editWalletValue)}
+                                    size="sm"
+                                    className="pump-button text-black"
+                                    disabled={!isValidSolanaAddress(editWalletValue)}
+                                  >
+                                    <Check className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    onClick={cancelEditingWallet}
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-gray-600 text-gray-300"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs font-mono text-gray-400">
+                                    {formatWalletAddress(session.streamer_wallet, 8, 8)}
+                                  </span>
+                                  <Button
+                                    onClick={() => startEditingWallet(sessionId, session.streamer_wallet)}
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                                    disabled={!session.is_active}
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div>
+                            <h4 className="font-medium mb-2 text-gray-300">for your stream (view only)</h4>
+                            <div className="flex gap-2">
+                              <Input
+                                value={`${window.location.origin}/view/${sessionId}`}
+                                readOnly
+                                className="text-xs bg-gray-800 border-gray-700 text-gray-400"
+                              />
+                              <Link href={`/view/${sessionId}`}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                                  disabled={!session.is_active}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => copyToClipboard(`${window.location.origin}/view/${sessionId}`, "view")}
+                                className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                                disabled={!session.is_active}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              display this on your stream. shows live drawing and nuke effects.
+                            </p>
+                          </div>
+                          <div>
+                            <h4 className="font-medium mb-2 text-gray-300">for viewers (token purchase & draw)</h4>
+                            <div className="flex gap-2">
+                              <Input
+                                value={`${window.location.origin}/draw/${sessionId}`}
+                                readOnly
+                                className="text-xs bg-gray-800 border-gray-700 text-gray-400"
+                              />
+                              <Link href={`/draw/${sessionId}`}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                                  disabled={!session.is_active}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => copyToClipboard(`${window.location.origin}/draw/${sessionId}`, "draw")}
+                                className="border-gray-700 text-gray-300 hover:bg-gray-800"
+                                disabled={!session.is_active}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">
+                              share this URL so viewers can buy tokens and interact with your board.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Session Stats */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                            <div className="text-[#00ff88] font-bold">
+                              {formatEarnings(session.pending_earnings)} SOL
+                            </div>
+                            <div className="text-gray-400">pending earnings</div>
+                          </div>
+                          <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                            <div className="flex items-center justify-center gap-1">
+                              <Timer className="h-4 w-4" />
+                              <span className="text-white font-bold">{session.lines_drawn || 0}</span>
+                            </div>
+                            <div className="text-gray-400">lines drawn</div>
+                          </div>
+                          <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                            <div className="flex items-center justify-center gap-1">
+                              <Bomb className="h-4 w-4 text-red-400" />
+                              <span className="text-white font-bold">{session.nukes_used || 0}</span>
+                            </div>
+                            <div className="text-gray-400">nukes used</div>
+                          </div>
+                          <div className="text-center p-3 bg-gray-800/50 rounded-lg">
+                            <div className="text-white font-bold">{session.viewer_count || 0}</div>
+                            <div className="text-gray-400">active viewers</div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="earnings">
+            {defaultWalletAddress ? (
+              <EarningsDashboard streamerWallet={defaultWalletAddress} />
+            ) : (
+              <Card className="pump-card border-gray-800">
+                <CardContent className="py-12 text-center">
+                  <Wallet className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                  <h3 className="text-lg font-semibold text-white mb-2">Set Your Default Wallet</h3>
+                  <p className="text-gray-400 mb-4">
+                    Please set your default wallet address in the Sessions tab to view your earnings.
+                  </p>
+                  <Button
+                    onClick={() => {
+                      const tabsList = document.querySelector('[role="tablist"]')
+                      const sessionsTab = tabsList?.querySelector('[value="sessions"]') as HTMLElement
+                      sessionsTab?.click()
+                    }}
+                    className="pump-button text-black"
+                  >
+                    Go to Sessions Tab
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   )

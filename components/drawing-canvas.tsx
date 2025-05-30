@@ -13,7 +13,7 @@ import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
 // Sync settings
 const SYNC_INTERVAL = 2000 // 2 seconds
-const SAVE_DELAY = 1000 // 1 second after drawing stops
+const SAVE_DELAY = 500 // 0.5 seconds after drawing stops
 
 interface UserTokens {
   lines: number
@@ -68,6 +68,19 @@ export default function DrawingCanvas({
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenValidated, setTokenValidated] = useState(false)
 
+  // Debug info
+  const [debugInfo, setDebugInfo] = useState<{
+    lastSaveAttempt: string | null
+    lastSaveResult: string | null
+    lastLoadAttempt: string | null
+    lastLoadResult: string | null
+  }>({
+    lastSaveAttempt: null,
+    lastSaveResult: null,
+    lastLoadAttempt: null,
+    lastLoadResult: null,
+  })
+
   // Initialize canvas
   useEffect(() => {
     const canvas = canvasRef.current
@@ -119,13 +132,16 @@ export default function DrawingCanvas({
 
     try {
       setSyncStatus("syncing")
+      const timestamp = Date.now()
+      setDebugInfo((prev) => ({ ...prev, lastLoadAttempt: new Date().toISOString() }))
       console.log(`[Canvas Load] Loading for session: ${sessionId}`)
 
-      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${Date.now()}`)
+      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${timestamp}`)
 
       if (!response.ok) {
         console.error(`[Canvas Load] HTTP error: ${response.status}`)
         setSyncStatus("disconnected")
+        setDebugInfo((prev) => ({ ...prev, lastLoadResult: `Error: ${response.status}` }))
         if (response.status === 404) {
           setSessionDeleted(true)
         }
@@ -138,6 +154,11 @@ export default function DrawingCanvas({
         dataLength: data.canvasData?.length || 0,
         lastUpdated: data.lastUpdated,
       })
+
+      setDebugInfo((prev) => ({
+        ...prev,
+        lastLoadResult: `Success: ${data.canvasData ? "Has data" : "No data"} (${data.canvasData?.length || 0} bytes)`,
+      }))
 
       if (data.canvasData && data.canvasData !== lastCanvasDataRef.current) {
         console.log(`[Canvas Load] New data detected, updating canvas`)
@@ -159,6 +180,7 @@ export default function DrawingCanvas({
         img.onerror = (error) => {
           console.error("[Canvas Load] Image load error:", error)
           setSyncStatus("disconnected")
+          setDebugInfo((prev) => ({ ...prev, lastLoadResult: `Image error: ${error}` }))
         }
 
         img.src = data.canvasData
@@ -170,6 +192,7 @@ export default function DrawingCanvas({
     } catch (error) {
       console.error("[Canvas Load] Error:", error)
       setSyncStatus("disconnected")
+      setDebugInfo((prev) => ({ ...prev, lastLoadResult: `Exception: ${error}` }))
     }
   }, [sessionId, ctx])
 
@@ -182,6 +205,7 @@ export default function DrawingCanvas({
 
     try {
       console.log(`[Canvas Save] Saving for session: ${sessionId}`)
+      setDebugInfo((prev) => ({ ...prev, lastSaveAttempt: new Date().toISOString() }))
 
       // Get canvas data as data URL
       const dataUrl = canvasRef.current.toDataURL("image/png", 0.8) // Add compression
@@ -194,28 +218,46 @@ export default function DrawingCanvas({
 
       console.log(`[Canvas Save] Data changed, saving to server - Length: ${dataUrl.length}`)
 
-      // Prepare the request body
-      const requestBody = JSON.stringify({ canvasData: dataUrl })
-      console.log(`[Canvas Save] Request body prepared - Length: ${requestBody.length}`)
+      // Use the test endpoint first to verify we can write to the database
+      const testResponse = await fetch(`/api/test-db-write?sessionId=${sessionId}`)
+      const testResult = await testResponse.json()
 
+      console.log(`[Canvas Save] Test write result:`, testResult)
+
+      if (!testResult.success) {
+        console.error(`[Canvas Save] Test write failed:`, testResult.error)
+        setDebugInfo((prev) => ({ ...prev, lastSaveResult: `Test failed: ${testResult.error}` }))
+        return
+      }
+
+      // Now try the actual save
       const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: requestBody,
+        body: JSON.stringify({ canvasData: dataUrl }),
       })
 
       const responseText = await response.text()
       console.log(`[Canvas Save] Response status: ${response.status}`)
       console.log(`[Canvas Save] Response text: ${responseText}`)
 
+      setDebugInfo((prev) => ({
+        ...prev,
+        lastSaveResult: `Status: ${response.status}, Response: ${responseText.substring(0, 50)}...`,
+      }))
+
       if (response.ok) {
-        const result = JSON.parse(responseText)
-        console.log(`[Canvas Save] SUCCESS:`, result)
-        lastCanvasDataRef.current = dataUrl
-        setSyncStatus("connected")
-        setLastSyncTime(new Date())
+        try {
+          const result = JSON.parse(responseText)
+          console.log(`[Canvas Save] SUCCESS:`, result)
+          lastCanvasDataRef.current = dataUrl
+          setSyncStatus("connected")
+          setLastSyncTime(new Date())
+        } catch (parseError) {
+          console.error(`[Canvas Save] Response parse error:`, parseError)
+        }
       } else {
         console.error(`[Canvas Save] HTTP error: ${response.status} - ${responseText}`)
         setSyncStatus("disconnected")
@@ -226,6 +268,7 @@ export default function DrawingCanvas({
     } catch (error) {
       console.error("[Canvas Save] Error:", error)
       setSyncStatus("disconnected")
+      setDebugInfo((prev) => ({ ...prev, lastSaveResult: `Exception: ${error}` }))
     }
   }, [sessionId, isReadOnly])
 
@@ -602,6 +645,23 @@ export default function DrawingCanvas({
     }, 0)
   }
 
+  // Manual sync button handler
+  const handleManualSync = async () => {
+    if (isReadOnly) {
+      toast({
+        title: "Manual sync",
+        description: "Fetching latest canvas data...",
+      })
+      await loadCanvasFromServer()
+    } else {
+      toast({
+        title: "Manual sync",
+        description: "Saving and syncing canvas data...",
+      })
+      await saveCanvasToServer()
+    }
+  }
+
   // Cleanup
   useEffect(() => {
     return () => {
@@ -620,20 +680,26 @@ export default function DrawingCanvas({
   return (
     <div className="flex flex-col relative h-full">
       {/* Sync Status Indicator */}
-      {isReadOnly && (
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
-          {syncStatus === "connected" && <Wifi className="h-3 w-3 text-green-400" />}
-          {syncStatus === "disconnected" && <WifiOff className="h-3 w-3 text-red-400" />}
-          {syncStatus === "syncing" && (
-            <div className="h-3 w-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" />
-          )}
-          <span className="text-gray-300">
-            {syncStatus === "connected" && lastSyncTime && `synced ${lastSyncTime.toLocaleTimeString()}`}
-            {syncStatus === "disconnected" && "disconnected"}
-            {syncStatus === "syncing" && "syncing..."}
-          </span>
-        </div>
-      )}
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
+        {syncStatus === "connected" && <Wifi className="h-3 w-3 text-green-400" />}
+        {syncStatus === "disconnected" && <WifiOff className="h-3 w-3 text-red-400" />}
+        {syncStatus === "syncing" && (
+          <div className="h-3 w-3 border border-yellow-400 border-t-transparent rounded-full animate-spin" />
+        )}
+        <span className="text-gray-300">
+          {syncStatus === "connected" && lastSyncTime && `synced ${lastSyncTime.toLocaleTimeString()}`}
+          {syncStatus === "disconnected" && "disconnected"}
+          {syncStatus === "syncing" && "syncing..."}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1 text-xs text-gray-300 hover:text-white"
+          onClick={handleManualSync}
+        >
+          Sync
+        </Button>
+      </div>
 
       {/* Nuke Effect Overlay */}
       {nukeEffect.isActive && (
@@ -762,15 +828,29 @@ export default function DrawingCanvas({
       </div>
 
       {/* Debug info */}
-      {isReadOnly && !isFullscreen && (
-        <div className="mt-4 text-center text-sm text-gray-500">
-          <div>canvas syncs every {SYNC_INTERVAL / 1000} seconds with the database.</div>
-          <div className="text-xs text-gray-600 mt-1">
-            status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"} | session:{" "}
-            {sessionId?.slice(-6)}
+      <div className="mt-4 text-center text-sm text-gray-500">
+        <div>canvas syncs every {SYNC_INTERVAL / 1000} seconds with the database.</div>
+        <div className="text-xs text-gray-600 mt-1">
+          status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"} | session:{" "}
+          {sessionId?.slice(-6)}
+        </div>
+
+        {/* Extended debug info */}
+        <div className="mt-2 p-2 bg-gray-800 rounded text-left text-xs text-gray-400 overflow-auto max-h-32">
+          <div>
+            <strong>Last Save Attempt:</strong> {debugInfo.lastSaveAttempt || "None"}
+          </div>
+          <div>
+            <strong>Last Save Result:</strong> {debugInfo.lastSaveResult || "None"}
+          </div>
+          <div>
+            <strong>Last Load Attempt:</strong> {debugInfo.lastLoadAttempt || "None"}
+          </div>
+          <div>
+            <strong>Last Load Result:</strong> {debugInfo.lastLoadResult || "None"}
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

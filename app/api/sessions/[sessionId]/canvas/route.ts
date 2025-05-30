@@ -5,6 +5,7 @@ export async function GET(request: NextRequest, { params }: { params: { sessionI
   try {
     console.log(`[Canvas API GET] Session: ${params.sessionId}`)
 
+    // Simple query to get canvas data
     const result = await sql`
       SELECT canvas_data, updated_at, is_active 
       FROM sessions 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest, { params }: { params: { session
       return NextResponse.json({ error: "Canvas data must be a valid data URL" }, { status: 400 })
     }
 
-    console.log(`[Canvas API POST] Saving canvas data - Length: ${canvasData.length}, Type: ${typeof canvasData}`)
+    console.log(`[Canvas API POST] Saving canvas data - Length: ${canvasData.length}`)
 
     // First check if session exists and is active
     const sessionCheck = await sql`
@@ -80,27 +81,43 @@ export async function POST(request: NextRequest, { params }: { params: { session
       return NextResponse.json({ error: "Session inactive" }, { status: 404 })
     }
 
-    // Update canvas data - use parameterized query to avoid JSON issues
-    const result = await sql`
-      UPDATE sessions 
-      SET canvas_data = ${canvasData}, updated_at = NOW()
-      WHERE session_id = ${params.sessionId} AND is_active = true
-      RETURNING session_id, updated_at
-    `
+    // Try a direct SQL query with text parameters
+    try {
+      const updateResult = await sql.query(
+        `
+        UPDATE sessions 
+        SET canvas_data = $1, updated_at = NOW()
+        WHERE session_id = $2 AND is_active = true
+        RETURNING session_id, updated_at
+      `,
+        [canvasData, params.sessionId],
+      )
 
-    if (result.length === 0) {
-      console.log(`[Canvas API POST] Update failed - session may have become inactive`)
-      return NextResponse.json({ error: "Failed to update session" }, { status: 404 })
+      console.log(`[Canvas API POST] Update result:`, updateResult)
+
+      if (!updateResult || updateResult.length === 0) {
+        console.log(`[Canvas API POST] Update failed - no rows returned`)
+        return NextResponse.json({ error: "Failed to update session" }, { status: 500 })
+      }
+
+      console.log(`[Canvas API POST] SUCCESS - Canvas saved for session: ${params.sessionId}`)
+
+      return NextResponse.json({
+        success: true,
+        sessionId: params.sessionId,
+        updatedAt: updateResult[0].updated_at,
+        dataLength: canvasData.length,
+      })
+    } catch (sqlError) {
+      console.error("[Canvas API POST] SQL Error:", sqlError)
+      return NextResponse.json(
+        {
+          error: "Database error",
+          details: sqlError instanceof Error ? sqlError.message : "Unknown SQL error",
+        },
+        { status: 500 },
+      )
     }
-
-    console.log(`[Canvas API POST] SUCCESS - Canvas saved for session: ${params.sessionId}`)
-
-    return NextResponse.json({
-      success: true,
-      sessionId: params.sessionId,
-      updatedAt: result[0].updated_at,
-      dataLength: canvasData.length,
-    })
   } catch (error) {
     console.error("[Canvas API POST] Error:", error)
     return NextResponse.json(
