@@ -70,6 +70,7 @@ export default function DrawingCanvas({
   const lastCanvasDataRef = useRef<string>("")
   const isCanvasReadyRef = useRef(false)
   const canvasImageDataRef = useRef<ImageData | null>(null)
+  const isDrawingRef = useRef(false) // Add ref to track drawing state for timer
   const { toast } = useToast()
 
   // Sync status
@@ -91,6 +92,11 @@ export default function DrawingCanvas({
     lastLoadResult: null,
   })
 
+  // Keep drawing ref in sync with state
+  useEffect(() => {
+    isDrawingRef.current = isDrawing
+  }, [isDrawing])
+
   // Initialize canvas with exact dimensions
   useEffect(() => {
     const canvas = canvasRef.current
@@ -98,7 +104,7 @@ export default function DrawingCanvas({
     if (!canvas || !container) return
 
     const setupCanvas = () => {
-      console.log(`[Canvas] Setting up canvas with exact dimensions`)
+      console.log(`[Canvas] Setting up canvas - fullscreen: ${isFullscreen}`)
 
       // Store current canvas content if it exists
       let imageData: ImageData | null = null
@@ -111,9 +117,27 @@ export default function DrawingCanvas({
         }
       }
 
-      // Set exact canvas dimensions - same for all devices
-      canvas.width = CANVAS_DIMENSIONS.width
-      canvas.height = CANVAS_DIMENSIONS.height
+      // Set canvas dimensions based on mode
+      if (isFullscreen) {
+        // In fullscreen, use container dimensions but maintain aspect ratio
+        const containerRect = container.getBoundingClientRect()
+        const containerAspect = containerRect.width / containerRect.height
+        const canvasAspect = CANVAS_DIMENSIONS.width / CANVAS_DIMENSIONS.height
+
+        if (containerAspect > canvasAspect) {
+          // Container is wider, fit to height
+          canvas.height = containerRect.height
+          canvas.width = containerRect.height * canvasAspect
+        } else {
+          // Container is taller, fit to width
+          canvas.width = containerRect.width
+          canvas.height = containerRect.width / canvasAspect
+        }
+      } else {
+        // Normal mode: use exact dimensions
+        canvas.width = CANVAS_DIMENSIONS.width
+        canvas.height = CANVAS_DIMENSIONS.height
+      }
 
       const context = canvas.getContext("2d")
       if (context) {
@@ -127,7 +151,7 @@ export default function DrawingCanvas({
         // Restore canvas content if we had any
         if (imageData && canvasImageDataRef.current) {
           try {
-            // Scale the image data to fit exact dimensions
+            // Scale the image data to fit current dimensions
             const tempCanvas = document.createElement("canvas")
             const tempCtx = tempCanvas.getContext("2d")
             if (tempCtx) {
@@ -136,7 +160,7 @@ export default function DrawingCanvas({
               tempCtx.putImageData(imageData, 0, 0)
 
               // Draw scaled image to main canvas
-              context.drawImage(tempCanvas, 0, 0, CANVAS_DIMENSIONS.width, CANVAS_DIMENSIONS.height)
+              context.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height)
               console.log(`[Canvas] Restored and scaled canvas content`)
             }
           } catch (error) {
@@ -146,22 +170,19 @@ export default function DrawingCanvas({
           }
         }
 
-        console.log(`[Canvas] Canvas ready - ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height} (exact dimensions)`)
+        console.log(`[Canvas] Canvas ready - ${canvas.width}x${canvas.height}`)
       }
     }
 
     setupCanvas()
 
     const handleResize = () => {
-      // Canvas dimensions stay the same, only CSS scaling changes
-      console.log(
-        `[Canvas] Window resized - canvas dimensions remain ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height}`,
-      )
+      if (isFullscreen) {
+        setTimeout(setupCanvas, 100)
+      }
     }
     const handleFullscreenChange = () => {
-      console.log(
-        `[Canvas] Fullscreen changed - canvas dimensions remain ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height}`,
-      )
+      setTimeout(setupCanvas, 100)
     }
 
     window.addEventListener("resize", handleResize)
@@ -171,7 +192,7 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen])
+  }, [isFullscreen, color, brushSize])
 
   // Update context properties when color or brush size changes (without clearing canvas)
   useEffect(() => {
@@ -277,8 +298,8 @@ export default function DrawingCanvas({
           if (ctx && canvasRef.current) {
             console.log(`[Canvas Load] Drawing image to canvas`)
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-            // Draw image at exact canvas dimensions
-            ctx.drawImage(img, 0, 0, CANVAS_DIMENSIONS.width, CANVAS_DIMENSIONS.height)
+            // Draw image to fit current canvas dimensions
+            ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
             lastCanvasDataRef.current = data.canvasData
 
             // Store the loaded image data
@@ -495,6 +516,45 @@ export default function DrawingCanvas({
     }
   }
 
+  // Force stop drawing function
+  const forceStopDrawing = useCallback(() => {
+    console.log(`[Canvas] Force stopping drawing due to timer expiry`)
+    setIsDrawing(false)
+    setDrawingStartTime(null)
+    setTimeLeft(DRAWING_TIME_LIMIT)
+    setTokenValidated(false)
+
+    if (drawingTimerRef.current) {
+      clearInterval(drawingTimerRef.current)
+      drawingTimerRef.current = null
+    }
+
+    if (ctx) {
+      ctx.closePath()
+    }
+
+    // Save with a delay to ensure drawing is complete
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      console.log(`[Canvas] Saving after forced drawing completion`)
+      saveCanvasToServer()
+    }, SAVE_DELAY)
+
+    setTimeout(() => {
+      if (onTokenUsed) {
+        onTokenUsed("line")
+      }
+
+      toast({
+        title: "time's up!",
+        description: "your 5-second drawing time has expired. 1 line token used.",
+      })
+    }, 0)
+  }, [ctx, saveCanvasToServer, onTokenUsed, toast])
+
   const startDrawing = async (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (isReadOnly || !ctx || !canvasRef.current || !isCanvasReadyRef.current) return
 
@@ -543,9 +603,9 @@ export default function DrawingCanvas({
       setTimeLeft((prev) => {
         const newTime = prev - 100
         if (newTime <= 0) {
-          // Force stop drawing when time is up, regardless of mouse state
-          if (isDrawing) {
-            stopDrawing(true)
+          // Force stop drawing when time is up using the ref
+          if (isDrawingRef.current) {
+            forceStopDrawing()
           }
           return 0
         }
@@ -580,8 +640,8 @@ export default function DrawingCanvas({
   const stopDrawing = (timeExpired = false) => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
-    if (!isDrawing && !timeExpired) return // Allow stopping if time expired, even if not in drawing state
-    if (!tokenValidated && !timeExpired) return // Allow stopping if time expired, even if token not validated
+    if (!isDrawing && !timeExpired) return
+    if (!tokenValidated && !timeExpired) return
 
     console.log(`[Canvas] Stopping drawing`)
     setIsDrawing(false)
@@ -707,13 +767,26 @@ export default function DrawingCanvas({
     }
 
     try {
-      await fetch(`/api/sessions/${sessionId}/nuke`, {
+      const response = await fetch(`/api/sessions/${sessionId}/nuke`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(nukeData),
       })
+
+      if (response.ok) {
+        console.log(`[Nuke] Successfully stored nuke effect`)
+        // Immediately trigger the nuke effect locally
+        setNukeEffect({
+          isActive: true,
+          user: nukeData.user,
+          timeLeft: 10,
+          startTime: nukeData.startTime,
+        })
+      } else {
+        console.error(`[Nuke] Failed to store nuke effect:`, response.status)
+      }
     } catch (error) {
       console.error("Error storing nuke effect:", error)
     }
@@ -958,7 +1031,7 @@ export default function DrawingCanvas({
         </>
       )}
 
-      {/* Canvas Container with Exact Dimensions */}
+      {/* Canvas Container */}
       <div
         ref={containerRef}
         className={`${getCanvasContainerClass(isFullscreen)} ${
@@ -973,7 +1046,7 @@ export default function DrawingCanvas({
             height: isFullscreen ? "100%" : "auto",
             maxWidth: "100%",
             maxHeight: "100%",
-            aspectRatio: `${CANVAS_DIMENSIONS.width}/${CANVAS_DIMENSIONS.height}`,
+            aspectRatio: isFullscreen ? "auto" : `${CANVAS_DIMENSIONS.width}/${CANVAS_DIMENSIONS.height}`,
           }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
@@ -987,7 +1060,9 @@ export default function DrawingCanvas({
 
       {/* Canvas Dimensions Info */}
       <div className="mt-2 text-center text-xs text-gray-500">
-        Canvas: {CANVAS_DIMENSIONS.width} × {CANVAS_DIMENSIONS.height} (exact dimensions, 16:9 ratio)
+        Canvas: {canvasRef.current?.width || CANVAS_DIMENSIONS.width} ×{" "}
+        {canvasRef.current?.height || CANVAS_DIMENSIONS.height}
+        {isFullscreen ? " (fullscreen)" : " (16:9 ratio)"}
       </div>
 
       {/* Debug info */}
