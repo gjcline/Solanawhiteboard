@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,7 @@ export default function ViewPage() {
     startTime: 0,
   })
   const { toast } = useToast()
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null)
 
   // Add new state for session status
   const [sessionDeleted, setSessionDeleted] = useState(false)
@@ -200,7 +201,12 @@ export default function ViewPage() {
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen()
+        // Request fullscreen on the container div
+        if (fullscreenContainerRef.current) {
+          await fullscreenContainerRef.current.requestFullscreen()
+        } else {
+          await document.documentElement.requestFullscreen()
+        }
       } else {
         await document.exitFullscreen()
       }
@@ -278,7 +284,11 @@ export default function ViewPage() {
 
   if (isFullscreen) {
     return (
-      <div className="fixed inset-0 bg-black">
+      <div
+        ref={fullscreenContainerRef}
+        className="fixed inset-0 bg-black flex flex-col"
+        style={{ paddingTop: "64px" }} // Account for the navbar height
+      >
         {/* Nuke Animation Overlay */}
         {nukeEffect.isActive && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -341,14 +351,7 @@ export default function ViewPage() {
           </div>
         )}
 
-        {/* Canvas takes full screen - navigation bar will overlay on top */}
-        <div className="w-full h-full">
-          <DrawingCanvas key={isFullscreen.toString()} isReadOnly={true} sessionId={sessionId} isFullscreen={true} />
-        </div>
-
-        {/* Overlay UI Elements - positioned absolutely so they don't affect canvas dimensions */}
-
-        {/* Top Session Info - overlays on top */}
+        {/* Session Info Bar */}
         <div className="absolute top-16 left-4 right-4 z-40 flex items-center justify-between">
           <div className="pump-card p-3 rounded-lg border-[#00ff88]/50 bg-black/90 backdrop-blur-md">
             <div className="flex items-center gap-3">
@@ -358,9 +361,6 @@ export default function ViewPage() {
               <div>
                 <div className="text-sm font-semibold text-white">Session ID</div>
                 <div className="text-lg font-bold pump-text-gradient">{sessionId}</div>
-              </div>
-              <div className="ml-4 text-xs text-gray-400">
-                <div>Live Stream View</div>
               </div>
             </div>
           </div>
@@ -375,7 +375,17 @@ export default function ViewPage() {
           </Button>
         </div>
 
-        {/* Bottom Info Bar - overlays on bottom */}
+        {/* Canvas Container - takes remaining space */}
+        <div className="flex-1 flex items-center justify-center bg-black">
+          <DrawingCanvas
+            key={`fullscreen-${isFullscreen}`}
+            isReadOnly={true}
+            sessionId={sessionId}
+            isFullscreen={true}
+          />
+        </div>
+
+        {/* Bottom Info Bar */}
         <div className="absolute bottom-4 left-4 right-4 z-40">
           <div className="pump-card p-2 rounded-lg bg-black/70 backdrop-blur-md border-[#00ff88]/30">
             <div className="flex items-center justify-center gap-6 text-xs text-gray-300">
