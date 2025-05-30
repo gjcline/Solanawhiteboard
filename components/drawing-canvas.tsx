@@ -10,11 +10,12 @@ import { Progress } from "@/components/ui/progress"
 import { Paintbrush, AlertCircle, Bomb, Timer, Trash2, Wifi, WifiOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
-import { calculateCanvasDimensions, getResponsiveCanvasClass, type CanvasDimensions } from "@/lib/canvas-utils"
+import { CANVAS_DIMENSIONS, getCanvasContainerClass } from "@/lib/canvas-utils"
 
 // Sync settings
 const SYNC_INTERVAL = 2000 // 2 seconds
 const SAVE_DELAY = 500 // 0.5 seconds after drawing stops
+const NUKE_CHECK_INTERVAL = 500 // Check for nuke effects every 500ms
 
 interface UserTokens {
   lines: number
@@ -35,6 +36,7 @@ interface NukeEffect {
   isActive: boolean
   user: string
   timeLeft: number
+  startTime: number
 }
 
 export default function DrawingCanvas({
@@ -53,11 +55,16 @@ export default function DrawingCanvas({
   const [brushSize, setBrushSize] = useState([5])
   const [drawingStartTime, setDrawingStartTime] = useState<number | null>(null)
   const [timeLeft, setTimeLeft] = useState(DRAWING_TIME_LIMIT)
-  const [nukeEffect, setNukeEffect] = useState<NukeEffect>({ isActive: false, user: "", timeLeft: 0 })
-  const [canvasDimensions, setCanvasDimensions] = useState<CanvasDimensions>({ width: 800, height: 450 })
+  const [nukeEffect, setNukeEffect] = useState<NukeEffect>({
+    isActive: false,
+    user: "",
+    timeLeft: 0,
+    startTime: 0,
+  })
   const lastPositionRef = useRef({ x: 0, y: 0 })
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const nukeCheckTimerRef = useRef<NodeJS.Timeout | null>(null)
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastCanvasDataRef = useRef<string>("")
@@ -84,30 +91,14 @@ export default function DrawingCanvas({
     lastLoadResult: null,
   })
 
-  // Calculate canvas dimensions based on container size
-  const updateCanvasDimensions = useCallback(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const containerRect = container.getBoundingClientRect()
-    const newDimensions = calculateCanvasDimensions(containerRect.width, containerRect.height, isFullscreen)
-
-    setCanvasDimensions(newDimensions)
-    return newDimensions
-  }, [isFullscreen])
-
-  // Initialize canvas with consistent sizing
+  // Initialize canvas with exact dimensions
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
     if (!canvas || !container) return
 
     const setupCanvas = () => {
-      console.log(`[Canvas] Setting up canvas`)
-
-      // Calculate new dimensions
-      const newDimensions = updateCanvasDimensions()
-      if (!newDimensions) return
+      console.log(`[Canvas] Setting up canvas with exact dimensions`)
 
       // Store current canvas content if it exists
       let imageData: ImageData | null = null
@@ -120,9 +111,9 @@ export default function DrawingCanvas({
         }
       }
 
-      // Set canvas dimensions
-      canvas.width = newDimensions.width
-      canvas.height = newDimensions.height
+      // Set exact canvas dimensions - same for all devices
+      canvas.width = CANVAS_DIMENSIONS.width
+      canvas.height = CANVAS_DIMENSIONS.height
 
       const context = canvas.getContext("2d")
       if (context) {
@@ -136,7 +127,7 @@ export default function DrawingCanvas({
         // Restore canvas content if we had any
         if (imageData && canvasImageDataRef.current) {
           try {
-            // Scale the image data to fit new dimensions if needed
+            // Scale the image data to fit exact dimensions
             const tempCanvas = document.createElement("canvas")
             const tempCtx = tempCanvas.getContext("2d")
             if (tempCtx) {
@@ -145,7 +136,7 @@ export default function DrawingCanvas({
               tempCtx.putImageData(imageData, 0, 0)
 
               // Draw scaled image to main canvas
-              context.drawImage(tempCanvas, 0, 0, newDimensions.width, newDimensions.height)
+              context.drawImage(tempCanvas, 0, 0, CANVAS_DIMENSIONS.width, CANVAS_DIMENSIONS.height)
               console.log(`[Canvas] Restored and scaled canvas content`)
             }
           } catch (error) {
@@ -155,17 +146,23 @@ export default function DrawingCanvas({
           }
         }
 
-        console.log(`[Canvas] Canvas ready - ${newDimensions.width}x${newDimensions.height}`)
+        console.log(`[Canvas] Canvas ready - ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height} (exact dimensions)`)
       }
     }
 
     setupCanvas()
 
     const handleResize = () => {
-      // Debounce resize events
-      setTimeout(setupCanvas, 100)
+      // Canvas dimensions stay the same, only CSS scaling changes
+      console.log(
+        `[Canvas] Window resized - canvas dimensions remain ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height}`,
+      )
     }
-    const handleFullscreenChange = () => setTimeout(setupCanvas, 100)
+    const handleFullscreenChange = () => {
+      console.log(
+        `[Canvas] Fullscreen changed - canvas dimensions remain ${CANVAS_DIMENSIONS.width}x${CANVAS_DIMENSIONS.height}`,
+      )
+    }
 
     window.addEventListener("resize", handleResize)
     document.addEventListener("fullscreenchange", handleFullscreenChange)
@@ -174,7 +171,7 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, updateCanvasDimensions])
+  }, [isFullscreen])
 
   // Update context properties when color or brush size changes (without clearing canvas)
   useEffect(() => {
@@ -184,6 +181,54 @@ export default function DrawingCanvas({
       console.log(`[Canvas] Updated brush properties - Color: ${color}, Size: ${brushSize[0]}`)
     }
   }, [color, brushSize, ctx])
+
+  // Check for nuke effects from server
+  const checkNukeEffect = useCallback(async () => {
+    if (!sessionId) return
+
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/nuke`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.nukeEffect && data.nukeEffect.isActive) {
+          const timeElapsed = Date.now() - data.nukeEffect.startTime
+          const timeLeft = 10000 - timeElapsed // 10 second effect
+
+          if (timeLeft > 0) {
+            setNukeEffect({
+              isActive: true,
+              user: data.nukeEffect.user,
+              timeLeft: Math.ceil(timeLeft / 1000),
+              startTime: data.nukeEffect.startTime,
+            })
+          } else {
+            setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
+          }
+        } else {
+          setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
+        }
+      }
+    } catch (error) {
+      console.error("Error checking nuke effect:", error)
+    }
+  }, [sessionId])
+
+  // Setup nuke effect checking
+  useEffect(() => {
+    if (sessionId) {
+      // Check immediately
+      checkNukeEffect()
+
+      // Check periodically
+      nukeCheckTimerRef.current = setInterval(checkNukeEffect, NUKE_CHECK_INTERVAL)
+
+      return () => {
+        if (nukeCheckTimerRef.current) {
+          clearInterval(nukeCheckTimerRef.current)
+        }
+      }
+    }
+  }, [sessionId, checkNukeEffect])
 
   // Load canvas from server
   const loadCanvasFromServer = useCallback(async () => {
@@ -232,8 +277,8 @@ export default function DrawingCanvas({
           if (ctx && canvasRef.current) {
             console.log(`[Canvas Load] Drawing image to canvas`)
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-            // Scale image to fit current canvas dimensions
-            ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
+            // Draw image at exact canvas dimensions
+            ctx.drawImage(img, 0, 0, CANVAS_DIMENSIONS.width, CANVAS_DIMENSIONS.height)
             lastCanvasDataRef.current = data.canvasData
 
             // Store the loaded image data
@@ -367,37 +412,6 @@ export default function DrawingCanvas({
     }
   }, [isReadOnly, sessionId, loadCanvasFromServer])
 
-  // Check for nuke effects
-  useEffect(() => {
-    if (isReadOnly && sessionId) {
-      const checkForNuke = setInterval(() => {
-        try {
-          const nukeData = localStorage.getItem(`whiteboard-nuke-${sessionId}`)
-          if (nukeData) {
-            const nuke = JSON.parse(nukeData)
-            const timeElapsed = Date.now() - nuke.timestamp
-            const timeLeft = 10000 - timeElapsed
-
-            if (timeLeft > 0) {
-              setNukeEffect({
-                isActive: true,
-                user: nuke.user,
-                timeLeft: Math.ceil(timeLeft / 1000),
-              })
-            } else {
-              setNukeEffect({ isActive: false, user: "", timeLeft: 0 })
-              localStorage.removeItem(`whiteboard-nuke-${sessionId}`)
-            }
-          }
-        } catch (error) {
-          console.error("Error checking for nuke effects:", error)
-        }
-      }, 100)
-
-      return () => clearInterval(checkForNuke)
-    }
-  }, [isReadOnly, sessionId])
-
   // Update nuke timer
   useEffect(() => {
     if (nukeEffect.isActive && nukeEffect.timeLeft > 0) {
@@ -529,7 +543,10 @@ export default function DrawingCanvas({
       setTimeLeft((prev) => {
         const newTime = prev - 100
         if (newTime <= 0) {
-          stopDrawing(true)
+          // Force stop drawing when time is up, regardless of mouse state
+          if (isDrawing) {
+            stopDrawing(true)
+          }
           return 0
         }
         return newTime
@@ -563,7 +580,8 @@ export default function DrawingCanvas({
   const stopDrawing = (timeExpired = false) => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
-    if (!isDrawing || !tokenValidated) return
+    if (!isDrawing && !timeExpired) return // Allow stopping if time expired, even if not in drawing state
+    if (!tokenValidated && !timeExpired) return // Allow stopping if time expired, even if token not validated
 
     console.log(`[Canvas] Stopping drawing`)
     setIsDrawing(false)
@@ -682,15 +700,25 @@ export default function DrawingCanvas({
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     canvasImageDataRef.current = null
 
+    // Store nuke effect on server for all devices to see
     const nukeData = {
       user: walletAddress.slice(0, 8) + "..." + walletAddress.slice(-4),
-      timestamp: Date.now(),
-    }
-    if (sessionId) {
-      localStorage.setItem(`whiteboard-nuke-${sessionId}`, JSON.stringify(nukeData))
+      startTime: Date.now(),
     }
 
-    // Save immediately
+    try {
+      await fetch(`/api/sessions/${sessionId}/nuke`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(nukeData),
+      })
+    } catch (error) {
+      console.error("Error storing nuke effect:", error)
+    }
+
+    // Save cleared canvas immediately
     await saveCanvasToServer()
 
     setTimeout(() => {
@@ -727,6 +755,7 @@ export default function DrawingCanvas({
     return () => {
       if (drawingTimerRef.current) clearInterval(drawingTimerRef.current)
       if (nukeTimerRef.current) clearTimeout(nukeTimerRef.current)
+      if (nukeCheckTimerRef.current) clearInterval(nukeCheckTimerRef.current)
       if (syncTimerRef.current) clearInterval(syncTimerRef.current)
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     }
@@ -761,14 +790,74 @@ export default function DrawingCanvas({
         </Button>
       </div>
 
-      {/* Nuke Effect Overlay */}
+      {/* Dramatic Nuke Effect Overlay */}
       {nukeEffect.isActive && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-red-500/20 backdrop-blur-sm">
-          <div className="text-center">
-            <div className="text-6xl mb-4">💣</div>
-            <div className="text-2xl font-bold text-white mb-2">NUKED BY {nukeEffect.user}</div>
-            <div className="text-lg text-gray-300">Effect ends in {nukeEffect.timeLeft}s</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Animated background with multiple layers */}
+          <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-orange-500 to-red-600 opacity-80 animate-pulse" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/50 to-transparent animate-ping" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-black/30" />
+
+          {/* Explosion particles effect */}
+          <div className="absolute inset-0 overflow-hidden">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-bounce"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationDuration: `${1 + Math.random()}s`,
+                }}
+              />
+            ))}
           </div>
+
+          {/* Main content */}
+          <div className="relative text-center z-10">
+            <div className="text-8xl mb-6 animate-bounce">💣</div>
+            <div className="text-6xl mb-4 animate-pulse">💥</div>
+            <div className="text-4xl font-bold text-white mb-4 drop-shadow-lg animate-pulse">NUCLEAR STRIKE!</div>
+            <div className="text-2xl font-bold text-yellow-300 mb-2 drop-shadow-lg">
+              BOARD NUKED BY {nukeEffect.user}
+            </div>
+            <div className="text-xl text-white drop-shadow-lg">Devastation ends in {nukeEffect.timeLeft}s</div>
+
+            {/* Countdown circle */}
+            <div className="mt-6 relative">
+              <div className="w-20 h-20 border-4 border-white/30 rounded-full mx-auto relative">
+                <div
+                  className="absolute inset-0 border-4 border-yellow-400 rounded-full transition-all duration-1000"
+                  style={{
+                    clipPath: `polygon(50% 50%, 50% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 0%, ${50 + (nukeEffect.timeLeft / 10) * 50}% 100%, 50% 100%)`,
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xl">
+                  {nukeEffect.timeLeft}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Screen shake effect */}
+          <style jsx>{`
+            @keyframes screenShake {
+              0%, 100% { transform: translate(0, 0) rotate(0deg); }
+              10% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+              20% { transform: translate(2px, 1px) rotate(0.5deg); }
+              30% { transform: translate(-1px, 2px) rotate(-0.5deg); }
+              40% { transform: translate(1px, -2px) rotate(0.5deg); }
+              50% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+              60% { transform: translate(2px, -1px) rotate(0.5deg); }
+              70% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+              80% { transform: translate(1px, 2px) rotate(0.5deg); }
+              90% { transform: translate(-2px, -1px) rotate(-0.5deg); }
+            }
+            .fixed {
+              animation: screenShake 0.5s infinite;
+            }
+          `}</style>
         </div>
       )}
 
@@ -844,8 +933,8 @@ export default function DrawingCanvas({
                 size="icon"
                 onClick={nukeBoard}
                 disabled={!canNuke}
-                title="Nuke Board"
-                className="border-red-500 text-red-400 hover:bg-red-500/20"
+                title="💥 NUKE BOARD 💥"
+                className="border-red-500 text-red-400 hover:bg-red-500/20 animate-pulse"
               >
                 <Bomb className="h-4 w-4" />
               </Button>
@@ -869,21 +958,22 @@ export default function DrawingCanvas({
         </>
       )}
 
-      {/* Canvas Container with Consistent Aspect Ratio */}
+      {/* Canvas Container with Exact Dimensions */}
       <div
         ref={containerRef}
-        className={`border rounded-md bg-white relative flex-1 flex items-center justify-center ${
+        className={`${getCanvasContainerClass(isFullscreen)} ${
           isReadOnly ? "cursor-not-allowed" : canDraw ? "cursor-crosshair" : "cursor-not-allowed"
-        } ${isFullscreen ? "h-full" : "min-h-[400px]"}`}
+        }`}
       >
         <canvas
           ref={canvasRef}
-          className={`${getResponsiveCanvasClass(isFullscreen)} touch-none border rounded`}
+          className="border rounded shadow-lg touch-none"
           style={{
-            width: isFullscreen ? "100%" : `${canvasDimensions.width}px`,
-            height: isFullscreen ? "100%" : `${canvasDimensions.height}px`,
+            width: isFullscreen ? "100%" : "100%",
+            height: isFullscreen ? "100%" : "auto",
             maxWidth: "100%",
             maxHeight: "100%",
+            aspectRatio: `${CANVAS_DIMENSIONS.width}/${CANVAS_DIMENSIONS.height}`,
           }}
           onMouseDown={startDrawing}
           onMouseMove={draw}
@@ -897,7 +987,7 @@ export default function DrawingCanvas({
 
       {/* Canvas Dimensions Info */}
       <div className="mt-2 text-center text-xs text-gray-500">
-        Canvas: {canvasDimensions.width} × {canvasDimensions.height} (16:9 aspect ratio)
+        Canvas: {CANVAS_DIMENSIONS.width} × {CANVAS_DIMENSIONS.height} (exact dimensions, 16:9 ratio)
       </div>
 
       {/* Debug info */}
