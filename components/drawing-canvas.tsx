@@ -12,8 +12,8 @@ import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
 // Sync settings
-const SYNC_INTERVAL = 1500 // 1.5 seconds
-const SAVE_DELAY = 500 // 0.5 seconds after drawing stops
+const SYNC_INTERVAL = 2000 // 2 seconds
+const SAVE_DELAY = 1000 // 1 second after drawing stops
 
 interface UserTokens {
   lines: number
@@ -77,16 +77,13 @@ export default function DrawingCanvas({
     const setupCanvas = () => {
       console.log(`[Canvas] Setting up canvas`)
 
-      // Get container dimensions
       const containerRect = container.getBoundingClientRect()
       const newWidth = containerRect.width
       const newHeight = isFullscreen ? containerRect.height : Math.max(500, containerRect.height)
 
-      // Set canvas size
       canvas.width = newWidth
       canvas.height = newHeight
 
-      // Setup context
       const context = canvas.getContext("2d")
       if (context) {
         context.lineCap = "round"
@@ -176,7 +173,7 @@ export default function DrawingCanvas({
     }
   }, [sessionId, ctx])
 
-  // Save canvas to server
+  // Save canvas to server with better error handling
   const saveCanvasToServer = useCallback(async () => {
     if (!sessionId || !canvasRef.current || isReadOnly || !isCanvasReadyRef.current) {
       console.log(`[Canvas Save] Skipping - not ready or read-only`)
@@ -186,7 +183,8 @@ export default function DrawingCanvas({
     try {
       console.log(`[Canvas Save] Saving for session: ${sessionId}`)
 
-      const dataUrl = canvasRef.current.toDataURL("image/png")
+      // Get canvas data as data URL
+      const dataUrl = canvasRef.current.toDataURL("image/png", 0.8) // Add compression
 
       // Only save if data has changed
       if (dataUrl === lastCanvasDataRef.current) {
@@ -194,24 +192,32 @@ export default function DrawingCanvas({
         return
       }
 
-      console.log(`[Canvas Save] Data changed, saving to server`)
+      console.log(`[Canvas Save] Data changed, saving to server - Length: ${dataUrl.length}`)
+
+      // Prepare the request body
+      const requestBody = JSON.stringify({ canvasData: dataUrl })
+      console.log(`[Canvas Save] Request body prepared - Length: ${requestBody.length}`)
 
       const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ canvasData: dataUrl }),
+        body: requestBody,
       })
 
+      const responseText = await response.text()
+      console.log(`[Canvas Save] Response status: ${response.status}`)
+      console.log(`[Canvas Save] Response text: ${responseText}`)
+
       if (response.ok) {
-        const result = await response.json()
-        console.log(`[Canvas Save] Success:`, result)
+        const result = JSON.parse(responseText)
+        console.log(`[Canvas Save] SUCCESS:`, result)
         lastCanvasDataRef.current = dataUrl
         setSyncStatus("connected")
         setLastSyncTime(new Date())
       } else {
-        console.error(`[Canvas Save] HTTP error: ${response.status}`)
+        console.error(`[Canvas Save] HTTP error: ${response.status} - ${responseText}`)
         setSyncStatus("disconnected")
         if (response.status === 404) {
           setSessionDeleted(true)
@@ -229,7 +235,7 @@ export default function DrawingCanvas({
       console.log(`[Canvas] Initial load triggered`)
       setTimeout(() => {
         loadCanvasFromServer()
-      }, 100)
+      }, 500) // Increased delay
     }
   }, [sessionId, ctx, loadCanvasFromServer])
 
@@ -471,7 +477,7 @@ export default function DrawingCanvas({
 
     ctx.closePath()
 
-    // Save with a small delay to ensure drawing is complete
+    // Save with a delay to ensure drawing is complete
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
