@@ -20,10 +20,22 @@ export function calculateCanvasDimensions(
   isFullscreen = false,
 ): CanvasDimensions {
   if (isFullscreen) {
-    // In fullscreen, use the full container dimensions
-    return {
-      width: containerWidth,
-      height: containerHeight,
+    // In fullscreen, calculate dimensions that fit the container while maintaining aspect ratio
+    const containerAspect = containerWidth / containerHeight
+    const canvasAspect = CANVAS_ASPECT_RATIO
+
+    if (containerAspect > canvasAspect) {
+      // Container is wider, fit to height
+      return {
+        width: Math.floor(containerHeight * canvasAspect),
+        height: containerHeight,
+      }
+    } else {
+      // Container is taller, fit to width
+      return {
+        width: containerWidth,
+        height: Math.floor(containerWidth / canvasAspect),
+      }
     }
   }
 
@@ -65,7 +77,7 @@ export function getResponsiveCanvasClass(isFullscreen: boolean): string {
 
 export function getCanvasContainerClass(isFullscreen: boolean): string {
   if (isFullscreen) {
-    return "w-full h-full flex items-center justify-center"
+    return "w-full h-full flex items-center justify-center bg-black"
   }
 
   return "border rounded-md bg-white relative flex items-center justify-center min-h-[400px] p-4"

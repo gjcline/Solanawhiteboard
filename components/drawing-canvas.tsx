@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Paintbrush, AlertCircle, Bomb, Timer, Trash2, Wifi, WifiOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
-import { CANVAS_DIMENSIONS, getCanvasContainerClass } from "@/lib/canvas-utils"
+import { CANVAS_DIMENSIONS, getCanvasContainerClass, calculateCanvasDimensions } from "@/lib/canvas-utils"
 
 // Sync settings
 const SYNC_INTERVAL = 2000 // 2 seconds
@@ -61,6 +61,10 @@ export default function DrawingCanvas({
     timeLeft: 0,
     startTime: 0,
   })
+  const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({
+    width: CANVAS_DIMENSIONS.width,
+    height: CANVAS_DIMENSIONS.height,
+  })
   const lastPositionRef = useRef({ x: 0, y: 0 })
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -97,7 +101,32 @@ export default function DrawingCanvas({
     isDrawingRef.current = isDrawing
   }, [isDrawing])
 
-  // Initialize canvas with exact dimensions
+  // Calculate canvas dimensions based on container and mode
+  const updateCanvasDimensions = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const containerRect = container.getBoundingClientRect()
+    console.log(
+      `[Canvas] Container dimensions: ${containerRect.width}x${containerRect.height}, fullscreen: ${isFullscreen}`,
+    )
+
+    if (isFullscreen) {
+      // Use window dimensions for fullscreen
+      const windowWidth = window.innerWidth
+      const windowHeight = window.innerHeight
+      const newDimensions = calculateCanvasDimensions(windowWidth, windowHeight, true)
+      console.log(`[Canvas] Fullscreen dimensions calculated: ${newDimensions.width}x${newDimensions.height}`)
+      setCanvasDimensions(newDimensions)
+      return newDimensions
+    } else {
+      // Use exact dimensions for normal mode
+      setCanvasDimensions(CANVAS_DIMENSIONS)
+      return CANVAS_DIMENSIONS
+    }
+  }, [isFullscreen])
+
+  // Initialize canvas with proper dimensions
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
@@ -117,27 +146,14 @@ export default function DrawingCanvas({
         }
       }
 
-      // Set canvas dimensions based on mode
-      if (isFullscreen) {
-        // In fullscreen, use container dimensions but maintain aspect ratio
-        const containerRect = container.getBoundingClientRect()
-        const containerAspect = containerRect.width / containerRect.height
-        const canvasAspect = CANVAS_DIMENSIONS.width / CANVAS_DIMENSIONS.height
+      // Calculate and set canvas dimensions
+      const newDimensions = updateCanvasDimensions()
+      if (!newDimensions) return
 
-        if (containerAspect > canvasAspect) {
-          // Container is wider, fit to height
-          canvas.height = containerRect.height
-          canvas.width = containerRect.height * canvasAspect
-        } else {
-          // Container is taller, fit to width
-          canvas.width = containerRect.width
-          canvas.height = containerRect.width / canvasAspect
-        }
-      } else {
-        // Normal mode: use exact dimensions
-        canvas.width = CANVAS_DIMENSIONS.width
-        canvas.height = CANVAS_DIMENSIONS.height
-      }
+      canvas.width = newDimensions.width
+      canvas.height = newDimensions.height
+
+      console.log(`[Canvas] Canvas dimensions set to: ${canvas.width}x${canvas.height}`)
 
       const context = canvas.getContext("2d")
       if (context) {
@@ -177,9 +193,7 @@ export default function DrawingCanvas({
     setupCanvas()
 
     const handleResize = () => {
-      if (isFullscreen) {
-        setTimeout(setupCanvas, 100)
-      }
+      setTimeout(setupCanvas, 100)
     }
     const handleFullscreenChange = () => {
       setTimeout(setupCanvas, 100)
@@ -192,7 +206,7 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, color, brushSize])
+  }, [isFullscreen, updateCanvasDimensions, color, brushSize])
 
   // Update context properties when color or brush size changes (without clearing canvas)
   useEffect(() => {
@@ -211,9 +225,13 @@ export default function DrawingCanvas({
       const response = await fetch(`/api/sessions/${sessionId}/nuke`)
       if (response.ok) {
         const data = await response.json()
+        console.log(`[Nuke Check] Response:`, data)
+
         if (data.nukeEffect && data.nukeEffect.isActive) {
           const timeElapsed = Date.now() - data.nukeEffect.startTime
           const timeLeft = 10000 - timeElapsed // 10 second effect
+
+          console.log(`[Nuke Check] Active nuke found - timeElapsed: ${timeElapsed}, timeLeft: ${timeLeft}`)
 
           if (timeLeft > 0) {
             setNukeEffect({
@@ -228,6 +246,8 @@ export default function DrawingCanvas({
         } else {
           setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
         }
+      } else {
+        console.log(`[Nuke Check] Response not ok:`, response.status)
       }
     } catch (error) {
       console.error("Error checking nuke effect:", error)
@@ -237,6 +257,8 @@ export default function DrawingCanvas({
   // Setup nuke effect checking
   useEffect(() => {
     if (sessionId) {
+      console.log(`[Nuke] Setting up nuke effect checking for session: ${sessionId}`)
+
       // Check immediately
       checkNukeEffect()
 
@@ -436,9 +458,13 @@ export default function DrawingCanvas({
   // Update nuke timer
   useEffect(() => {
     if (nukeEffect.isActive && nukeEffect.timeLeft > 0) {
+      console.log(`[Nuke Timer] Active nuke effect, time left: ${nukeEffect.timeLeft}`)
       nukeTimerRef.current = setTimeout(() => {
         setNukeEffect((prev) => ({ ...prev, timeLeft: prev.timeLeft - 1 }))
       }, 1000)
+    } else if (nukeEffect.isActive && nukeEffect.timeLeft <= 0) {
+      console.log(`[Nuke Timer] Nuke effect expired, clearing`)
+      setNukeEffect({ isActive: false, user: "", timeLeft: 0, startTime: 0 })
     }
 
     return () => {
@@ -766,6 +792,15 @@ export default function DrawingCanvas({
       startTime: Date.now(),
     }
 
+    console.log(`[Nuke] Triggering nuke effect immediately`)
+    // Immediately trigger the nuke effect locally
+    setNukeEffect({
+      isActive: true,
+      user: nukeData.user,
+      timeLeft: 10,
+      startTime: nukeData.startTime,
+    })
+
     try {
       const response = await fetch(`/api/sessions/${sessionId}/nuke`, {
         method: "POST",
@@ -776,14 +811,7 @@ export default function DrawingCanvas({
       })
 
       if (response.ok) {
-        console.log(`[Nuke] Successfully stored nuke effect`)
-        // Immediately trigger the nuke effect locally
-        setNukeEffect({
-          isActive: true,
-          user: nukeData.user,
-          timeLeft: 10,
-          startTime: nukeData.startTime,
-        })
+        console.log(`[Nuke] Successfully stored nuke effect on server`)
       } else {
         console.error(`[Nuke] Failed to store nuke effect:`, response.status)
       }
@@ -1042,8 +1070,8 @@ export default function DrawingCanvas({
           ref={canvasRef}
           className="border rounded shadow-lg touch-none"
           style={{
-            width: isFullscreen ? "100%" : "100%",
-            height: isFullscreen ? "100%" : "auto",
+            width: isFullscreen ? `${canvasDimensions.width}px` : "100%",
+            height: isFullscreen ? `${canvasDimensions.height}px` : "auto",
             maxWidth: "100%",
             maxHeight: "100%",
             aspectRatio: isFullscreen ? "auto" : `${CANVAS_DIMENSIONS.width}/${CANVAS_DIMENSIONS.height}`,
@@ -1060,8 +1088,7 @@ export default function DrawingCanvas({
 
       {/* Canvas Dimensions Info */}
       <div className="mt-2 text-center text-xs text-gray-500">
-        Canvas: {canvasRef.current?.width || CANVAS_DIMENSIONS.width} ×{" "}
-        {canvasRef.current?.height || CANVAS_DIMENSIONS.height}
+        Canvas: {canvasDimensions.width} × {canvasDimensions.height}
         {isFullscreen ? " (fullscreen)" : " (16:9 ratio)"}
       </div>
 
@@ -1070,7 +1097,7 @@ export default function DrawingCanvas({
         <div>canvas syncs every {SYNC_INTERVAL / 1000} seconds with the database.</div>
         <div className="text-xs text-gray-600 mt-1">
           status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"} | session:{" "}
-          {sessionId?.slice(-6)}
+          {sessionId?.slice(-6)} | nuke: {nukeEffect.isActive ? "ACTIVE" : "inactive"}
         </div>
 
         {/* Extended debug info */}
