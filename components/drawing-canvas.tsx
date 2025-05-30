@@ -11,8 +11,9 @@ import { Paintbrush, AlertCircle, Bomb, Timer, Trash2, Wifi, WifiOff } from "luc
 import { useToast } from "@/hooks/use-toast"
 import { DRAWING_TIME_LIMIT } from "@/lib/pricing"
 
-// How often to sync the canvas (in milliseconds)
-const SYNC_INTERVAL = 2000
+// Sync settings
+const SYNC_INTERVAL = 1500 // 1.5 seconds
+const SAVE_DELAY = 500 // 0.5 seconds after drawing stops
 
 interface UserTokens {
   lines: number
@@ -56,140 +57,25 @@ export default function DrawingCanvas({
   const drawingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const nukeTimerRef = useRef<NodeJS.Timeout | null>(null)
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const lastCanvasHashRef = useRef<string | null>(null)
-  const isInitializedRef = useRef(false)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastCanvasDataRef = useRef<string>("")
+  const isCanvasReadyRef = useRef(false)
   const { toast } = useToast()
 
-  // Add sync status for debugging
+  // Sync status
   const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "syncing">("disconnected")
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
-
-  // Add new props and state for session validation
   const [sessionDeleted, setSessionDeleted] = useState(false)
   const [tokenValidated, setTokenValidated] = useState(false)
 
-  // Simple hash function for canvas data comparison
-  const hashCanvasData = (data: string): string => {
-    let hash = 0
-    for (let i = 0; i < data.length; i++) {
-      const char = data.charCodeAt(i)
-      hash = (hash << 5) - hash + char
-      hash = hash & hash // Convert to 32bit integer
-    }
-    return hash.toString()
-  }
-
-  // Load canvas data from server
-  const loadCanvasFromServer = useCallback(async () => {
-    if (!sessionId || !canvasRef.current || !ctx) return
-
-    try {
-      setSyncStatus("syncing")
-      console.log(`[Canvas] Loading canvas for session: ${sessionId}`)
-
-      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${Date.now()}`)
-      if (response.ok) {
-        const data = await response.json()
-        console.log(`[Canvas] Server response:`, {
-          hasCanvasData: !!data.canvasData,
-          dataLength: data.canvasData?.length || 0,
-          lastUpdated: data.lastUpdated,
-        })
-
-        if (data.canvasData) {
-          const newHash = hashCanvasData(data.canvasData)
-          console.log(`[Canvas] Hash comparison:`, {
-            newHash,
-            lastHash: lastCanvasHashRef.current,
-            different: newHash !== lastCanvasHashRef.current,
-          })
-
-          if (newHash !== lastCanvasHashRef.current) {
-            console.log(`[Canvas] Loading new canvas data`)
-            const img = new Image()
-            img.crossOrigin = "anonymous"
-            img.onload = () => {
-              if (ctx && canvasRef.current) {
-                console.log(`[Canvas] Drawing image to canvas`)
-                ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-                ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
-                lastCanvasHashRef.current = newHash
-                setSyncStatus("connected")
-                setLastSyncTime(new Date())
-              }
-            }
-            img.onerror = (error) => {
-              console.error("[Canvas] Failed to load canvas image:", error)
-              setSyncStatus("disconnected")
-            }
-            img.src = data.canvasData
-          } else {
-            console.log(`[Canvas] Canvas data unchanged`)
-            setSyncStatus("connected")
-            setLastSyncTime(new Date())
-          }
-        } else {
-          console.log(`[Canvas] No canvas data from server`)
-          setSyncStatus("connected")
-          setLastSyncTime(new Date())
-        }
-      } else {
-        console.error(`[Canvas] Server error:`, response.status)
-        setSyncStatus("disconnected")
-      }
-    } catch (error) {
-      console.error("[Canvas] Error loading canvas from server:", error)
-      setSyncStatus("disconnected")
-    }
-  }, [sessionId, ctx])
-
-  // Save canvas data to server
-  const saveCanvasToServer = useCallback(async () => {
-    if (!sessionId || !canvasRef.current || isReadOnly) return
-
-    try {
-      console.log(`[Canvas] Saving canvas for session: ${sessionId}`)
-      const dataUrl = canvasRef.current.toDataURL("image/png")
-      const newHash = hashCanvasData(dataUrl)
-
-      // Only save if the canvas data has actually changed
-      if (newHash !== lastCanvasHashRef.current) {
-        console.log(`[Canvas] Canvas changed, saving to server`)
-        const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ canvasData: dataUrl }),
-        })
-
-        if (response.ok) {
-          const result = await response.json()
-          console.log(`[Canvas] Save result:`, result)
-          lastCanvasHashRef.current = newHash
-          setSyncStatus("connected")
-          setLastSyncTime(new Date())
-        } else {
-          console.error("[Canvas] Failed to save canvas to server:", response.status)
-          setSyncStatus("disconnected")
-        }
-      } else {
-        console.log(`[Canvas] Canvas unchanged, skipping save`)
-      }
-    } catch (error) {
-      console.error("[Canvas] Error saving canvas to server:", error)
-      setSyncStatus("disconnected")
-    }
-  }, [sessionId, isReadOnly])
-
-  // Initialize canvas and handle resizing
+  // Initialize canvas
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
     if (!canvas || !container) return
 
-    const updateCanvasSize = async () => {
-      console.log(`[Canvas] Updating canvas size`)
+    const setupCanvas = () => {
+      console.log(`[Canvas] Setting up canvas`)
 
       // Get container dimensions
       const containerRect = container.getBoundingClientRect()
@@ -200,7 +86,7 @@ export default function DrawingCanvas({
       canvas.width = newWidth
       canvas.height = newHeight
 
-      // Restore context properties
+      // Setup context
       const context = canvas.getContext("2d")
       if (context) {
         context.lineCap = "round"
@@ -208,31 +94,15 @@ export default function DrawingCanvas({
         context.strokeStyle = color
         context.lineWidth = brushSize[0]
         setCtx(context)
-
-        // Load from server after canvas is ready
-        if (!isInitializedRef.current) {
-          console.log(`[Canvas] Initial canvas setup, loading from server`)
-          isInitializedRef.current = true
-          // Small delay to ensure canvas is fully ready
-          setTimeout(() => {
-            loadCanvasFromServer()
-          }, 100)
-        }
+        isCanvasReadyRef.current = true
+        console.log(`[Canvas] Canvas ready - ${newWidth}x${newHeight}`)
       }
     }
 
-    // Initial setup
-    updateCanvasSize()
+    setupCanvas()
 
-    // Handle window resize
-    const handleResize = () => {
-      updateCanvasSize()
-    }
-
-    // Handle fullscreen changes
-    const handleFullscreenChange = () => {
-      setTimeout(updateCanvasSize, 100)
-    }
+    const handleResize = () => setupCanvas()
+    const handleFullscreenChange = () => setTimeout(setupCanvas, 100)
 
     window.addEventListener("resize", handleResize)
     document.addEventListener("fullscreenchange", handleFullscreenChange)
@@ -241,14 +111,133 @@ export default function DrawingCanvas({
       window.removeEventListener("resize", handleResize)
       document.removeEventListener("fullscreenchange", handleFullscreenChange)
     }
-  }, [isFullscreen, color, brushSize, loadCanvasFromServer])
+  }, [isFullscreen, color, brushSize])
 
-  // Set up real-time canvas sync for read-only views
+  // Load canvas from server
+  const loadCanvasFromServer = useCallback(async () => {
+    if (!sessionId || !isCanvasReadyRef.current || !canvasRef.current || !ctx) {
+      console.log(`[Canvas Load] Skipping - not ready`)
+      return
+    }
+
+    try {
+      setSyncStatus("syncing")
+      console.log(`[Canvas Load] Loading for session: ${sessionId}`)
+
+      const response = await fetch(`/api/sessions/${sessionId}/canvas?t=${Date.now()}`)
+
+      if (!response.ok) {
+        console.error(`[Canvas Load] HTTP error: ${response.status}`)
+        setSyncStatus("disconnected")
+        if (response.status === 404) {
+          setSessionDeleted(true)
+        }
+        return
+      }
+
+      const data = await response.json()
+      console.log(`[Canvas Load] Response:`, {
+        hasData: !!data.canvasData,
+        dataLength: data.canvasData?.length || 0,
+        lastUpdated: data.lastUpdated,
+      })
+
+      if (data.canvasData && data.canvasData !== lastCanvasDataRef.current) {
+        console.log(`[Canvas Load] New data detected, updating canvas`)
+
+        const img = new Image()
+        img.crossOrigin = "anonymous"
+
+        img.onload = () => {
+          if (ctx && canvasRef.current) {
+            console.log(`[Canvas Load] Drawing image to canvas`)
+            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+            ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height)
+            lastCanvasDataRef.current = data.canvasData
+            setSyncStatus("connected")
+            setLastSyncTime(new Date())
+          }
+        }
+
+        img.onerror = (error) => {
+          console.error("[Canvas Load] Image load error:", error)
+          setSyncStatus("disconnected")
+        }
+
+        img.src = data.canvasData
+      } else {
+        console.log(`[Canvas Load] No new data`)
+        setSyncStatus("connected")
+        setLastSyncTime(new Date())
+      }
+    } catch (error) {
+      console.error("[Canvas Load] Error:", error)
+      setSyncStatus("disconnected")
+    }
+  }, [sessionId, ctx])
+
+  // Save canvas to server
+  const saveCanvasToServer = useCallback(async () => {
+    if (!sessionId || !canvasRef.current || isReadOnly || !isCanvasReadyRef.current) {
+      console.log(`[Canvas Save] Skipping - not ready or read-only`)
+      return
+    }
+
+    try {
+      console.log(`[Canvas Save] Saving for session: ${sessionId}`)
+
+      const dataUrl = canvasRef.current.toDataURL("image/png")
+
+      // Only save if data has changed
+      if (dataUrl === lastCanvasDataRef.current) {
+        console.log(`[Canvas Save] No changes, skipping save`)
+        return
+      }
+
+      console.log(`[Canvas Save] Data changed, saving to server`)
+
+      const response = await fetch(`/api/sessions/${sessionId}/canvas`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ canvasData: dataUrl }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log(`[Canvas Save] Success:`, result)
+        lastCanvasDataRef.current = dataUrl
+        setSyncStatus("connected")
+        setLastSyncTime(new Date())
+      } else {
+        console.error(`[Canvas Save] HTTP error: ${response.status}`)
+        setSyncStatus("disconnected")
+        if (response.status === 404) {
+          setSessionDeleted(true)
+        }
+      }
+    } catch (error) {
+      console.error("[Canvas Save] Error:", error)
+      setSyncStatus("disconnected")
+    }
+  }, [sessionId, isReadOnly])
+
+  // Initial load when canvas is ready
   useEffect(() => {
-    if (isReadOnly && sessionId && ctx && isInitializedRef.current) {
-      console.log(`[Canvas] Setting up sync timer for read-only view`)
+    if (isCanvasReadyRef.current && sessionId && ctx) {
+      console.log(`[Canvas] Initial load triggered`)
+      setTimeout(() => {
+        loadCanvasFromServer()
+      }, 100)
+    }
+  }, [sessionId, ctx, loadCanvasFromServer])
 
-      // Set up periodic sync
+  // Setup sync timer for read-only views
+  useEffect(() => {
+    if (isReadOnly && sessionId && isCanvasReadyRef.current) {
+      console.log(`[Canvas] Setting up sync timer (${SYNC_INTERVAL}ms)`)
+
       syncTimerRef.current = setInterval(() => {
         console.log(`[Canvas] Sync timer tick`)
         loadCanvasFromServer()
@@ -261,18 +250,26 @@ export default function DrawingCanvas({
         }
       }
     }
-  }, [isReadOnly, sessionId, ctx, loadCanvasFromServer])
+  }, [isReadOnly, sessionId, loadCanvasFromServer])
 
-  // Check for nuke effects from localStorage (temporary bridge)
+  // Update context when color or brush size changes
+  useEffect(() => {
+    if (ctx) {
+      ctx.strokeStyle = color
+      ctx.lineWidth = brushSize[0]
+    }
+  }, [color, brushSize, ctx])
+
+  // Check for nuke effects
   useEffect(() => {
     if (isReadOnly && sessionId) {
-      const checkForNuke = setInterval(async () => {
+      const checkForNuke = setInterval(() => {
         try {
           const nukeData = localStorage.getItem(`whiteboard-nuke-${sessionId}`)
           if (nukeData) {
             const nuke = JSON.parse(nukeData)
             const timeElapsed = Date.now() - nuke.timestamp
-            const timeLeft = 10000 - timeElapsed // 10 seconds
+            const timeLeft = 10000 - timeElapsed
 
             if (timeLeft > 0) {
               setNukeEffect({
@@ -309,42 +306,6 @@ export default function DrawingCanvas({
     }
   }, [nukeEffect])
 
-  // Update context when color or brush size changes
-  useEffect(() => {
-    if (ctx) {
-      ctx.strokeStyle = color
-      ctx.lineWidth = brushSize[0]
-    }
-  }, [color, brushSize, ctx])
-
-  // Check for session deletion from server
-  useEffect(() => {
-    if (!sessionId || isReadOnly) return
-
-    const checkSessionStatus = async () => {
-      try {
-        const response = await fetch(`/api/sessions/${sessionId}`)
-        if (response.ok) {
-          const data = await response.json()
-          if (!data.session?.is_active) {
-            setSessionDeleted(true)
-          }
-        } else if (response.status === 404) {
-          setSessionDeleted(true)
-        }
-      } catch (error) {
-        console.error("Error checking session status:", error)
-      }
-    }
-
-    // Check immediately
-    checkSessionStatus()
-
-    // Check every 5 seconds
-    const interval = setInterval(checkSessionStatus, 5000)
-    return () => clearInterval(interval)
-  }, [sessionId, isReadOnly])
-
   const getPointerPosition = (
     e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
     canvas: HTMLCanvasElement,
@@ -366,7 +327,7 @@ export default function DrawingCanvas({
     return { x, y }
   }
 
-  // Server-side token validation before allowing drawing
+  // Token validation
   const validateTokenBeforeDrawing = async (): Promise<boolean> => {
     if (!sessionId || !walletAddress) {
       toast({
@@ -378,7 +339,6 @@ export default function DrawingCanvas({
     }
 
     try {
-      // Check server-side token balance
       const response = await fetch(`/api/tokens/${sessionId}?wallet=${walletAddress}`)
       if (!response.ok) {
         toast({
@@ -392,7 +352,6 @@ export default function DrawingCanvas({
       const data = await response.json()
       const serverTokens = data.tokens
 
-      // Check if user has line tokens or bundle tokens
       if (!serverTokens || (serverTokens.line_tokens <= 0 && serverTokens.bundle_tokens <= 0)) {
         toast({
           title: "no line tokens",
@@ -415,11 +374,9 @@ export default function DrawingCanvas({
     }
   }
 
-  // Update the startDrawing function with strict validation
   const startDrawing = async (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (isReadOnly || !ctx || !canvasRef.current) return
+    if (isReadOnly || !ctx || !canvasRef.current || !isCanvasReadyRef.current) return
 
-    // Prevent default to stop any unwanted behavior
     e.preventDefault()
 
     if (sessionDeleted) {
@@ -440,7 +397,6 @@ export default function DrawingCanvas({
       return
     }
 
-    // STRICT TOKEN VALIDATION - Check both client and server
     const clientHasTokens =
       userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
     if (!clientHasTokens) {
@@ -452,7 +408,6 @@ export default function DrawingCanvas({
       return
     }
 
-    // Server-side validation to prevent bypassing
     const isValid = await validateTokenBeforeDrawing()
     if (!isValid) {
       return
@@ -463,12 +418,10 @@ export default function DrawingCanvas({
     setDrawingStartTime(Date.now())
     setTimeLeft(DRAWING_TIME_LIMIT)
 
-    // Start the drawing timer
     drawingTimerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         const newTime = prev - 100
         if (newTime <= 0) {
-          // Force stop drawing when time is up
           stopDrawing(true)
           return 0
         }
@@ -503,14 +456,13 @@ export default function DrawingCanvas({
   const stopDrawing = (timeExpired = false) => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
-    // Only proceed if we were actually drawing and tokens were validated
     if (!isDrawing || !tokenValidated) return
 
-    console.log(`[Canvas] Stopping drawing, saving to server`)
+    console.log(`[Canvas] Stopping drawing`)
     setIsDrawing(false)
     setDrawingStartTime(null)
     setTimeLeft(DRAWING_TIME_LIMIT)
-    setTokenValidated(false) // Reset validation
+    setTokenValidated(false)
 
     if (drawingTimerRef.current) {
       clearInterval(drawingTimerRef.current)
@@ -519,10 +471,16 @@ export default function DrawingCanvas({
 
     ctx.closePath()
 
-    // Save the drawing to server immediately after drawing stops
-    saveCanvasToServer()
+    // Save with a small delay to ensure drawing is complete
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
 
-    // Use setTimeout to defer the token usage callback to avoid setState during render
+    saveTimeoutRef.current = setTimeout(() => {
+      console.log(`[Canvas] Saving after drawing completion`)
+      saveCanvasToServer()
+    }, SAVE_DELAY)
+
     setTimeout(() => {
       if (onTokenUsed) {
         onTokenUsed("line")
@@ -554,7 +512,6 @@ export default function DrawingCanvas({
     })
   }
 
-  // Server-side nuke validation
   const validateNukeToken = async (): Promise<boolean> => {
     if (!sessionId || !walletAddress) return false
 
@@ -572,7 +529,6 @@ export default function DrawingCanvas({
     }
   }
 
-  // Update the nukeBoard function with strict validation
   const nukeBoard = async () => {
     if (isReadOnly || !ctx || !canvasRef.current) return
 
@@ -594,7 +550,6 @@ export default function DrawingCanvas({
       return
     }
 
-    // STRICT TOKEN VALIDATION - Check both client and server
     if (userTokens.nukes <= 0) {
       toast({
         title: "no nuke tokens",
@@ -604,12 +559,11 @@ export default function DrawingCanvas({
       return
     }
 
-    // Server-side validation
     const isValid = await validateNukeToken()
     if (!isValid) {
       toast({
         title: "nuke validation failed",
-        description: "unable toverify nuke tokens on server.",
+        description: "unable to verify nuke tokens on server.",
         variant: "destructive",
       })
       return
@@ -619,7 +573,6 @@ export default function DrawingCanvas({
     const canvas = canvasRef.current
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Save nuke effect data (temporary localStorage bridge)
     const nukeData = {
       user: walletAddress.slice(0, 8) + "..." + walletAddress.slice(-4),
       timestamp: Date.now(),
@@ -628,10 +581,9 @@ export default function DrawingCanvas({
       localStorage.setItem(`whiteboard-nuke-${sessionId}`, JSON.stringify(nukeData))
     }
 
-    // Save the cleared canvas to server immediately
+    // Save immediately
     await saveCanvasToServer()
 
-    // Use setTimeout to defer the token usage callback to avoid setState during render
     setTimeout(() => {
       if (onTokenUsed) {
         onTokenUsed("nuke")
@@ -644,16 +596,16 @@ export default function DrawingCanvas({
     }, 0)
   }
 
-  // Cleanup timers on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
       if (drawingTimerRef.current) clearInterval(drawingTimerRef.current)
       if (nukeTimerRef.current) clearTimeout(nukeTimerRef.current)
       if (syncTimerRef.current) clearInterval(syncTimerRef.current)
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     }
   }, [])
 
-  // Strict validation for drawing permissions
   const hasLineTokens =
     userTokens.lines > 0 || (userTokens && "bundle_tokens" in userTokens && (userTokens as any).bundle_tokens > 0)
   const canDraw = walletAddress && hasLineTokens && !sessionDeleted && !isDrawing
@@ -661,7 +613,7 @@ export default function DrawingCanvas({
 
   return (
     <div className="flex flex-col relative h-full">
-      {/* Sync Status Indicator - Only show in read-only mode */}
+      {/* Sync Status Indicator */}
       {isReadOnly && (
         <div className="absolute top-2 right-2 z-20 flex items-center gap-2 px-2 py-1 bg-black/70 rounded text-xs text-white">
           {syncStatus === "connected" && <Wifi className="h-3 w-3 text-green-400" />}
@@ -688,7 +640,7 @@ export default function DrawingCanvas({
         </div>
       )}
 
-      {/* Fixed Timer Progress Bar - Only visible when drawing */}
+      {/* Timer Progress Bar */}
       {!isReadOnly && isDrawing && (
         <div className="absolute top-0 left-0 right-0 z-10 p-2 bg-black/80 backdrop-blur-sm rounded-t-md">
           <div className="flex items-center justify-between mb-2">
@@ -740,7 +692,7 @@ export default function DrawingCanvas({
             )}
           </div>
 
-          {/* Drawing Tools - With Clear Button */}
+          {/* Drawing Tools */}
           <div className="flex flex-wrap gap-2 mb-4">
             <div className="flex gap-2">
               <Button variant="default" size="icon" title="Draw" disabled={!canDraw} className="pump-button text-black">
@@ -803,12 +755,13 @@ export default function DrawingCanvas({
         />
       </div>
 
-      {/* Debug info for read-only mode */}
+      {/* Debug info */}
       {isReadOnly && !isFullscreen && (
         <div className="mt-4 text-center text-sm text-gray-500">
           <div>canvas syncs every {SYNC_INTERVAL / 1000} seconds with the database.</div>
           <div className="text-xs text-gray-600 mt-1">
-            status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"}
+            status: {syncStatus} | last sync: {lastSyncTime?.toLocaleTimeString() || "never"} | session:{" "}
+            {sessionId?.slice(-6)}
           </div>
         </div>
       )}
