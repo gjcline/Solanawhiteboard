@@ -28,32 +28,32 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen w-full relative">
+    <div className="min-h-screen w-full relative overflow-hidden">
       <DrawingBackground density={15} speed={0.3} />
 
       {/* Hero Section */}
-      <section className="relative w-full py-12 md:py-20 overflow-hidden">
+      <section className="relative w-full py-24 md:py-32 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-[#00ff88]/10 via-transparent to-[#00cc6a]/5"></div>
-        <div className="container mx-auto px-4 md:px-6 relative">
-          <div className="flex flex-col items-center justify-center space-y-6 text-center max-w-4xl mx-auto">
+        <div className="container mx-auto px-4 md:px-6 relative z-10">
+          <div className="flex flex-col items-center justify-center space-y-8 text-center max-w-4xl mx-auto">
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#00ff88]/10 border border-[#00ff88]/20">
                 <Zap className="h-4 w-4 text-[#00ff88]" />
                 <span className="text-sm text-[#00ff88] font-medium">powered by solana</span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight sm:text-5xl md:text-6xl">
+              <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
                 <span className="pump-text-gradient">draw.fun</span>
                 <br />
                 <span className="text-white">for streamers</span>
               </h1>
-              <p className="mx-auto max-w-[600px] text-gray-400 text-base md:text-lg leading-relaxed">
+              <p className="mx-auto max-w-[700px] text-gray-400 text-base md:text-lg leading-relaxed">
                 the first token-based drawing platform on solana. viewers buy drawing tokens to interact with your
                 stream. single lines, bundles, or nuke the entire board!
               </p>
             </div>
             <div>
               <Link href="/login">
-                <Button size="lg" className="pump-button text-black font-semibold px-8 py-3">
+                <Button size="lg" className="pump-button text-black font-semibold px-8 py-6 text-lg">
                   start pumping draws
                 </Button>
               </Link>
@@ -63,7 +63,7 @@ export default function Home() {
       </section>
 
       {/* Join Session Section */}
-      <section className="w-full py-8 bg-gradient-to-b from-transparent to-gray-900/20 relative">
+      <section className="w-full py-12 bg-gradient-to-b from-transparent to-gray-900/20 relative">
         <div className="container mx-auto px-4 md:px-6">
           <div className="max-w-2xl mx-auto">
             <Card className="pump-card border-[#00ff88]/50 glow-effect">
@@ -138,7 +138,7 @@ export default function Home() {
 
           <div className="grid gap-8 md:grid-cols-3 max-w-4xl mx-auto">
             {/* Single Line */}
-            <div className="pump-card rounded-xl p-8 text-center glow-effect">
+            <div className="pump-card rounded-xl p-8 text-center">
               <div className="pump-gradient p-4 rounded-xl w-fit mx-auto mb-6">
                 <Zap className="h-8 w-8 text-black" />
               </div>
@@ -267,7 +267,7 @@ export default function Home() {
       {/* Features */}
       <section className="w-full py-20 relative">
         <div className="container mx-auto px-4 md:px-6">
-          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+          <div className="grid gap-8 md:grid-cols-3 max-w-6xl mx-auto">
             <div className="pump-card rounded-xl p-6 text-center">
               <div className="pump-gradient p-3 rounded-lg w-fit mx-auto mb-4">
                 <Users className="h-6 w-6 text-black" />
