@@ -49,7 +49,7 @@ export default function DrawingBackground({ density = 20, speed = 0.5 }: Drawing
         type: getRandomType(),
         rotation: Math.random() * Math.PI * 2,
         speed: (Math.random() + 0.5) * speed,
-        opacity: Math.random() * 0.2 + 0.05,
+        opacity: Math.random() * 0.15 + 0.05, // Lower opacity for subtle effect
       })
     }
 
@@ -232,5 +232,5 @@ export default function DrawingBackground({ density = 20, speed = 0.5 }: Drawing
     }
   }, [density, speed])
 
-  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full pointer-events-none z-0 opacity-20" />
+  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full pointer-events-none z-0 opacity-15" />
 }

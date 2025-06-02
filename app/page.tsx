@@ -8,7 +8,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Zap, Users, DollarSign, Paintbrush2, Timer, Bomb, ArrowRight } from "lucide-react"
+import { Zap, Users, DollarSign, Paintbrush2, Timer, Bomb, ArrowRight, AlertTriangle } from "lucide-react"
 import DrawingBackground from "@/components/drawing-background"
 
 export default function Home() {
@@ -326,6 +326,21 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Beta Banner */}
+      <div className="beta-banner fixed bottom-0 w-full text-center py-4 px-6 z-20">
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-orange-900/50 text-orange-300 rounded-full text-xs font-bold">BETA TESTING</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-orange-400" />
+            <span className="text-sm text-gray-300">
+              This platform is currently in beta testing. Features may be unstable, and data could be reset. Use at your own risk.
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

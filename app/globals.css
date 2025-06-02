@@ -146,3 +146,10 @@
     padding-right: 1rem;
   }
 }
+
+/* Beta banner */
+.beta-banner {
+  background: rgba(139, 68, 0, 0.7);
+  border-top: 1px solid rgba(255, 165, 0, 0.3);
+  backdrop-filter: blur(10px);
+}

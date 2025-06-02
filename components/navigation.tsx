@@ -25,14 +25,14 @@ export default function Navigation() {
   const navItems = user ? authenticatedNavItems : publicNavItems
 
   return (
-    <header className="border-b border-gray-800 bg-black/50 backdrop-blur-md sticky top-0 z-50">
+    <header className="border-b border-gray-800 bg-black/70 backdrop-blur-md sticky top-0 z-50">
       <div className="container flex h-16 items-center px-4">
         <Link href="/" className="flex items-center gap-3 font-bold text-xl">
           <div className="pump-gradient p-2 rounded-lg">
             <Zap className="h-6 w-6 text-black" />
           </div>
           <span className="pump-text-gradient">draw.fun</span>
-          <span className="text-xs text-gray-500 font-normal">by D3vCav3</span>
+          <span className="text-xs text-orange-500 font-normal bg-orange-900/30 px-2 py-0.5 rounded">BETA</span>
         </Link>
         <nav className="ml-auto flex items-center gap-8">
           {navItems.map((item) => (
